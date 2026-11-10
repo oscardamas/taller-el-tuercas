@@ -7,13 +7,15 @@ const PORT = process.env.PORT || 3000;
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-const usePostgres = !!process.env.DATABASE_URL;
+// Verificar si existe la variable DATABASE_URL y que no sea una plantilla genérica
+const rawDbUrl = process.env.DATABASE_URL;
+const usePostgres = rawDbUrl && rawDbUrl.startsWith('postgres://');
 let queryDB;
 
 if (usePostgres) {
   const { Pool } = require('pg');
   const pool = new Pool({
-    connectionString: process.env.DATABASE_URL,
+    connectionString: rawDbUrl,
     ssl: { rejectUnauthorized: false }
   });
 
@@ -50,7 +52,6 @@ if (usePostgres) {
 
   queryDB = async (text, params = []) => {
     let queryText = text;
-    // Agrega la cláusula RETURNING id automáticamente para INSERTs en PostgreSQL
     if (queryText.trim().toUpperCase().startsWith('INSERT') && !queryText.toUpperCase().includes('RETURNING')) {
       queryText += ' RETURNING id';
     }
@@ -58,6 +59,7 @@ if (usePostgres) {
     return res.rows;
   };
 } else {
+  // Modo de respaldo en SQLite para pruebas locales
   const sqlite3 = require('sqlite3').verbose();
   const db = new sqlite3.Database('taller.db', (err) => {
     if (err) console.error('Error al abrir SQLite local:', err.message);
