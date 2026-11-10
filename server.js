@@ -45,11 +45,16 @@ if (usePostgres) {
       costo_mano_obra NUMERIC(10,2) DEFAULT 0,
       estado VARCHAR(50) DEFAULT 'Pendiente'
     );
-  `).then(() => console.log('Modo Producción: Conectado a PostgreSQL en Render.'))
-    .catch(err => console.error('Error conectando a PostgreSQL:', err.message));
+  `).then(() => console.log('Modo Producción: Conectado exitosamente a PostgreSQL en Render.'))
+    .catch(err => console.error('Error al conectar con PostgreSQL:', err.message));
 
   queryDB = async (text, params = []) => {
-    const res = await pool.query(text, params);
+    let queryText = text;
+    // Agrega la cláusula RETURNING id automáticamente para INSERTs en PostgreSQL
+    if (queryText.trim().toUpperCase().startsWith('INSERT') && !queryText.toUpperCase().includes('RETURNING')) {
+      queryText += ' RETURNING id';
+    }
+    const res = await pool.query(queryText, params);
     return res.rows;
   };
 } else {
