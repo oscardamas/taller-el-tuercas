@@ -1,179 +1,193 @@
 const express = require('express');
-const sqlite3 = require('sqlite3').verbose();
+const { Pool } = require('pg');
 const path = require('path');
 
 const app = express();
-// Definición del puerto para entorno local o producción en la nube
 const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Inicializar la base de datos SQLite
-const db = new sqlite3.Database('taller.db', (err) => {
-  if (err) console.error('Error al abrir la base de datos:', err.message);
-  else console.log('Conexión exitosa a SQLite (taller.db).');
+// Configuración de conexión usando la variable de entorno DATABASE_URL de Render
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: process.env.DATABASE_URL ? { rejectUnauthorized: false } : false
 });
 
-// Crear estructuras de tablas relacionales
-db.serialize(() => {
-  db.run(`
-    CREATE TABLE IF NOT EXISTS clientes (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      nombre TEXT NOT NULL,
-      telefono TEXT NOT NULL UNIQUE,
-      email TEXT,
-      notas TEXT,
-      fecha_registro DATETIME DEFAULT CURRENT_TIMESTAMP
-    )
-  `);
+// Crear las tablas de forma automática al iniciar la aplicación
+async function inicializarTablas() {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS clientes (
+        id SERIAL PRIMARY KEY,
+        nombre VARCHAR(255) NOT NULL,
+        telefono VARCHAR(50) NOT NULL UNIQUE,
+        email VARCHAR(255),
+        notas TEXT,
+        fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
 
-  db.run(`
-    CREATE TABLE IF NOT EXISTS vehiculos (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      cliente_id INTEGER NOT NULL,
-      marca TEXT NOT NULL,
-      modelo TEXT NOT NULL,
-      anio INTEGER NOT NULL,
-      placas TEXT NOT NULL UNIQUE,
-      kilometraje INTEGER DEFAULT 0,
-      FOREIGN KEY (cliente_id) REFERENCES clientes(id) ON DELETE CASCADE
-    )
-  `);
+      CREATE TABLE IF NOT EXISTS vehiculos (
+        id SERIAL PRIMARY KEY,
+        cliente_id INTEGER NOT NULL REFERENCES clientes(id) ON DELETE CASCADE,
+        marca VARCHAR(100) NOT NULL,
+        modelo VARCHAR(100) NOT NULL,
+        anio INTEGER NOT NULL,
+        placas VARCHAR(50) NOT NULL UNIQUE,
+        kilometraje INTEGER DEFAULT 0
+      );
 
-  db.run(`
-    CREATE TABLE IF NOT EXISTS servicios (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      vehiculo_id INTEGER NOT NULL,
-      fecha TEXT NOT NULL,
-      diagnostico TEXT NOT NULL,
-      trabajo_realizado TEXT,
-      costo_piezas REAL DEFAULT 0,
-      costo_mano_obra REAL DEFAULT 0,
-      estado TEXT DEFAULT 'Pendiente',
-      FOREIGN KEY (vehiculo_id) REFERENCES vehiculos(id) ON DELETE CASCADE
-    )
-  `);
-});
+      CREATE TABLE IF NOT EXISTS servicios (
+        id SERIAL PRIMARY KEY,
+        vehiculo_id INTEGER NOT NULL REFERENCES vehiculos(id) ON DELETE CASCADE,
+        fecha VARCHAR(50) NOT NULL,
+        diagnostico TEXT NOT NULL,
+        trabajo_realizado TEXT,
+        costo_piezas NUMERIC(10,2) DEFAULT 0,
+        costo_mano_obra NUMERIC(10,2) DEFAULT 0,
+        estado VARCHAR(50) DEFAULT 'Pendiente'
+      );
+    `);
+    console.log('Conexión y tablas inicializadas correctamente en PostgreSQL.');
+  } catch (err) {
+    console.error('Error al inicializar la base de datos:', err.message);
+  }
+}
+
+inicializarTablas();
 
 // --- RUTAS DE CLIENTES ---
 
-// 1. Buscar cliente por número de teléfono
-app.get('/api/clientes/buscar', (req, res) => {
+app.get('/api/clientes/buscar', async (req, res) => {
   const { telefono } = req.query;
   if (!telefono) return res.status(400).json({ error: 'Ingresa un número de teléfono.' });
 
-  const sql = 'SELECT * FROM clientes WHERE telefono LIKE ? ORDER BY id DESC';
-  db.all(sql, [`%${telefono}%`], (err, rows) => {
-    if (err) return res.status(500).json({ error: err.message });
-    res.json(rows);
-  });
+  try {
+    const result = await pool.query('SELECT * FROM clientes WHERE telefono LIKE $1 ORDER BY id DESC', [`%${telefono}%`]);
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-// 2. Obtener expediente completo (Cliente + Vehículos + Servicios)
-app.get('/api/clientes/:id/completo', (req, res) => {
+app.get('/api/clientes/:id/completo', async (req, res) => {
   const clienteId = req.params.id;
 
-  db.get('SELECT * FROM clientes WHERE id = ?', [clienteId], (err, cliente) => {
-    if (err || !cliente) return res.status(404).json({ error: 'Cliente no encontrado.' });
+  try {
+    const resCliente = await pool.query('SELECT * FROM clientes WHERE id = $1', [clienteId]);
+    if (resCliente.rows.length === 0) return res.status(404).json({ error: 'Cliente no encontrado.' });
 
-    db.all('SELECT * FROM vehiculos WHERE cliente_id = ? ORDER BY id DESC', [clienteId], (err, vehiculos) => {
-      if (err) return res.status(500).json({ error: err.message });
+    const cliente = resCliente.rows[0];
+    const resVehiculos = await pool.query('SELECT * FROM vehiculos WHERE cliente_id = $1 ORDER BY id DESC', [clienteId]);
+    const vehiculos = resVehiculos.rows;
 
-      if (vehiculos.length === 0) {
-        return res.json({ ...cliente, vehiculos: [] });
-      }
+    if (vehiculos.length === 0) {
+      return res.json({ ...cliente, vehiculos: [] });
+    }
 
-      const vehiculoIds = vehiculos.map(v => v.id);
-      const placeholders = vehiculoIds.map(() => '?').join(',');
+    const vehiculoIds = vehiculos.map(v => v.id);
+    const resServicios = await pool.query('SELECT * FROM servicios WHERE vehiculo_id = ANY($1::int[]) ORDER BY fecha DESC', [vehiculoIds]);
 
-      db.all(`SELECT * FROM servicios WHERE vehiculo_id IN (${placeholders}) ORDER BY fecha DESC`, vehiculoIds, (err, servicios) => {
-        if (err) return res.status(500).json({ error: err.message });
+    const vehiculosConServicios = vehiculos.map(v => ({
+      ...v,
+      servicios: resServicios.rows.filter(s => s.vehiculo_id === v.id)
+    }));
 
-        const vehiculosConServicios = vehiculos.map(v => ({
-          ...v,
-          servicios: servicios.filter(s => s.vehiculo_id === v.id)
-        }));
-
-        res.json({ ...cliente, vehiculos: vehiculosConServicios });
-      });
-    });
-  });
+    res.json({ ...cliente, vehiculos: vehiculosConServicios });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-// 3. Registrar cliente
-app.post('/api/clientes', (req, res) => {
+app.post('/api/clientes', async (req, res) => {
   const { nombre, telefono, email, notas } = req.body;
   if (!nombre || !telefono) return res.status(400).json({ error: 'Nombre y teléfono son obligatorios.' });
 
-  const sql = 'INSERT INTO clientes (nombre, telefono, email, notas) VALUES (?, ?, ?, ?)';
-  db.run(sql, [nombre, telefono, email || '', notas || ''], function(err) {
-    if (err) {
-      if (err.message.includes('UNIQUE')) return res.status(400).json({ error: 'El número de teléfono ya está registrado.' });
-      return res.status(500).json({ error: err.message });
+  try {
+    const result = await pool.query(
+      'INSERT INTO clientes (nombre, telefono, email, notas) VALUES ($1, $2, $3, $4) RETURNING id',
+      [nombre, telefono, email || '', notas || '']
+    );
+    res.json({ id: result.rows[0].id, message: 'Cliente registrado correctamente.' });
+  } catch (err) {
+    if (err.message.includes('unique') || err.message.includes('UNIQUE')) {
+      return res.status(400).json({ error: 'El número de teléfono ya está registrado.' });
     }
-    res.json({ id: this.lastID, message: 'Cliente registrado correctamente.' });
-  });
+    res.status(500).json({ error: err.message });
+  }
 });
 
-// 4. Modificar cliente
-app.put('/api/clientes/:id', (req, res) => {
+app.put('/api/clientes/:id', async (req, res) => {
   const { nombre, telefono, email, notas } = req.body;
-  const sql = 'UPDATE clientes SET nombre = ?, telefono = ?, email = ?, notas = ? WHERE id = ?';
-  db.run(sql, [nombre, telefono, email, notas, req.params.id], function(err) {
-    if (err) return res.status(500).json({ error: err.message });
+  try {
+    await pool.query('UPDATE clientes SET nombre = $1, telefono = $2, email = $3, notas = $4 WHERE id = $5', [nombre, telefono, email, notas, req.params.id]);
     res.json({ message: 'Cliente actualizado con éxito.' });
-  });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // --- RUTAS DE VEHÍCULOS ---
 
-app.post('/api/vehiculos', (req, res) => {
+app.post('/api/vehiculos', async (req, res) => {
   const { cliente_id, marca, modelo, anio, placas, kilometraje } = req.body;
-  const sql = 'INSERT INTO vehiculos (cliente_id, marca, modelo, anio, placas, kilometraje) VALUES (?, ?, ?, ?, ?, ?)';
-  db.run(sql, [cliente_id, marca, modelo, anio, placas.toUpperCase(), kilometraje || 0], function(err) {
-    if (err) {
-      if (err.message.includes('UNIQUE')) return res.status(400).json({ error: 'Las placas ya están registradas.' });
-      return res.status(500).json({ error: err.message });
+  try {
+    const result = await pool.query(
+      'INSERT INTO vehiculos (cliente_id, marca, modelo, anio, placas, kilometraje) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id',
+      [cliente_id, marca, modelo, anio, placas.toUpperCase(), kilometraje || 0]
+    );
+    res.json({ id: result.rows[0].id, message: 'Vehículo registrado.' });
+  } catch (err) {
+    if (err.message.includes('unique') || err.message.includes('UNIQUE')) {
+      return res.status(400).json({ error: 'Las placas ya están registradas.' });
     }
-    res.json({ id: this.lastID, message: 'Vehículo registrado.' });
-  });
+    res.status(500).json({ error: err.message });
+  }
 });
 
-app.put('/api/vehiculos/:id', (req, res) => {
+app.put('/api/vehiculos/:id', async (req, res) => {
   const { marca, modelo, anio, placas, kilometraje } = req.body;
-  const sql = 'UPDATE vehiculos SET marca = ?, modelo = ?, anio = ?, placas = ?, kilometraje = ? WHERE id = ?';
-  db.run(sql, [marca, modelo, anio, placas.toUpperCase(), kilometraje, req.params.id], function(err) {
-    if (err) return res.status(500).json({ error: err.message });
+  try {
+    await pool.query('UPDATE vehiculos SET marca = $1, modelo = $2, anio = $3, placas = $4, kilometraje = $5 WHERE id = $6', [marca, modelo, anio, placas.toUpperCase(), kilometraje, req.params.id]);
     res.json({ message: 'Vehículo actualizado con éxito.' });
-  });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // --- RUTAS DE SERVICIOS / ÓRDENES DE TRABAJO ---
 
-app.post('/api/servicios', (req, res) => {
+app.post('/api/servicios', async (req, res) => {
   const { vehiculo_id, fecha, diagnostico, trabajo_realizado, costo_piezas, costo_mano_obra, estado } = req.body;
   const fechaFinal = fecha || new Date().toISOString().split('T')[0];
-  const sql = `INSERT INTO servicios (vehiculo_id, fecha, diagnostico, trabajo_realizado, costo_piezas, costo_mano_obra, estado)
-               VALUES (?, ?, ?, ?, ?, ?, ?)`;
-  db.run(sql, [vehiculo_id, fechaFinal, diagnostico, trabajo_realizado || '', costo_piezas || 0, costo_mano_obra || 0, estado || 'Pendiente'], function(err) {
-    if (err) return res.status(500).json({ error: err.message });
-    res.json({ id: this.lastID, message: 'Orden de servicio registrada.' });
-  });
+
+  try {
+    const result = await pool.query(
+      `INSERT INTO servicios (vehiculo_id, fecha, diagnostico, trabajo_realizado, costo_piezas, costo_mano_obra, estado)
+       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+      [vehiculo_id, fechaFinal, diagnostico, trabajo_realizado || '', costo_piezas || 0, costo_mano_obra || 0, estado || 'Pendiente']
+    );
+    res.json({ id: result.rows[0].id, message: 'Orden de servicio registrada.' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-app.put('/api/servicios/:id', (req, res) => {
+app.put('/api/servicios/:id', async (req, res) => {
   const { fecha, diagnostico, trabajo_realizado, costo_piezas, costo_mano_obra, estado } = req.body;
-  const sql = `UPDATE servicios SET fecha = ?, diagnostico = ?, trabajo_realizado = ?, costo_piezas = ?, costo_mano_obra = ?, estado = ?
-               WHERE id = ?`;
-  db.run(sql, [fecha, diagnostico, trabajo_realizado, costo_piezas, costo_mano_obra, estado, req.params.id], function(err) {
-    if (err) return res.status(500).json({ error: err.message });
+  try {
+    await pool.query(
+      `UPDATE servicios SET fecha = $1, diagnostico = $2, trabajo_realizado = $3, costo_piezas = $4, costo_mano_obra = $5, estado = $6
+       WHERE id = $7`,
+      [fecha, diagnostico, trabajo_realizado, costo_piezas, costo_mano_obra, estado, req.params.id]
+    );
     res.json({ message: 'Servicio actualizado con éxito.' });
-  });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-// 5. OBTENER VEHÍCULOS Y CLIENTES FILTRADOS POR ESTADO DE SERVICIO
-app.get('/api/servicios/estado/:estado', (req, res) => {
+app.get('/api/servicios/estado/:estado', async (req, res) => {
   const estado = req.params.estado;
   const sql = `
     SELECT 
@@ -196,18 +210,18 @@ app.get('/api/servicios/estado/:estado', (req, res) => {
     FROM servicios s
     JOIN vehiculos v ON s.vehiculo_id = v.id
     JOIN clientes c ON v.cliente_id = c.id
-    WHERE s.estado = ?
+    WHERE s.estado = $1
     ORDER BY s.id DESC
   `;
 
-  db.all(sql, [estado], (err, rows) => {
-    if (err) {
-      return res.status(500).json({ error: err.message });
-    }
-    res.json(rows);
-  });
+  try {
+    const result = await pool.query(sql, [estado]);
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 app.listen(PORT, () => {
-  console.log(`Servidor activo en http://localhost:${PORT}`);
+  console.log(`Servidor escuchando en puerto ${PORT}`);
 });
