@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Taller El Tuercas - Gestión Automotriz</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>⚙️ TALLER EL TUERCAS ⚙️</h1>
+      <p class="subtitle">SISTEMA DE INGENIERÍA Y ADMINISTRACIÓN AUTOMOTRIZ</p>
+    </header>
+
+    <!-- Barra de Búsqueda por Teléfono -->
+    <section class="search-box card">
+      <h2>🔍 Buscar Cliente por Teléfono</h2>
+      <div class="search-group">
+        <input type="text" id="input-buscar-telefono" placeholder="Ingresa número de teléfono (ej. 9841234567)">
+        <button id="btn-buscar" class="btn">Buscar</button>
+      </div>
+      <div id="resultados-busqueda" class="results-list"></div>
+    </section>
+
+    <!-- Sección Filtrar Órdenes por Estado -->
+    <section class="card" style="margin-top: 20px;">
+      <h2>📊 Consultar Vehículos por Estado de Servicio</h2>
+      <div class="search-group">
+        <select id="select-filtro-estado" onchange="filtrarPorEstado(this.value)">
+          <option value="">-- Selecciona un estado --</option>
+          <option value="Pendiente">Pendiente</option>
+          <option value="En Proceso">En Proceso</option>
+          <option value="Completado">Completado</option>
+          <option value="Entregado">Entregado</option>
+        </select>
+      </div>
+      <div id="contenedor-estado-servicios" class="results-list" style="margin-top: 15px;"></div>
+    </section>
+
+    <div class="grid">
+      <!-- Formulario Registro Nuevo Cliente -->
+      <section class="card">
+        <h2>➕ Registrar Nuevo Cliente</h2>
+        <form id="form-cliente">
+          <label>Nombre Completo *</label>
+          <input type="text" id="cli-nombre" required placeholder="Juan Pérez">
+          
+          <label>Teléfono / WhatsApp *</label>
+          <input type="text" id="cli-telefono" required placeholder="9841234567">
+          
+          <label>Correo Electrónico</label>
+          <input type="email" id="cli-email" placeholder="cliente@correo.com">
+          
+          <label>Notas Generales</label>
+          <textarea id="cli-notas" rows="2" placeholder="Preferencias o historial del cliente..."></textarea>
+          
+          <button type="submit" class="btn">Guardar Cliente</button>
+        </form>
+      </section>
+
+      <!-- Panel de Expediente Digital del Cliente -->
+      <section id="expediente-cliente" class="card hidden">
+        <div class="header-expediente">
+          <h2 id="exp-nombre">Cliente</h2>
+          <button id="btn-editar-cliente" class="btn btn-secondary btn-sm">✏️ Editar Cliente</button>
+        </div>
+        
+        <div id="exp-datos" class="client-details"></div>
+
+        <hr>
+
+        <div class="header-expediente">
+          <h3>🚗 Flota de Vehículos</h3>
+          <button id="btn-nuevo-vehiculo" class="btn btn-sm">➕ Registrar Vehículo</button>
+        </div>
+        <div id="exp-vehiculos"></div>
+      </section>
+    </div>
+  </div>
+
+  <!-- MODAL: Editar Cliente -->
+  <div id="modal-cliente" class="modal hidden">
+    <div class="modal-content">
+      <h3>Editar Información del Cliente</h3>
+      <form id="form-edit-cliente">
+        <input type="hidden" id="edit-cli-id">
+        <label>Nombre Completo</label>
+        <input type="text" id="edit-cli-nombre" required>
+        <label>Teléfono / WhatsApp</label>
+        <input type="text" id="edit-cli-telefono" required>
+        <label>Correo Electrónico</label>
+        <input type="email" id="edit-cli-email">
+        <label>Notas Generales</label>
+        <textarea id="edit-cli-notas" rows="2"></textarea>
+        <div class="modal-actions">
+          <button type="submit" class="btn">Guardar Cambios</button>
+          <button type="button" class="btn btn-secondary" onclick="cerrarModales()">Cancelar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: Registrar / Editar Vehículo -->
+  <div id="modal-vehiculo" class="modal hidden">
+    <div class="modal-content">
+      <h3 id="modal-veh-titulo">Vehículo</h3>
+      <form id="form-vehiculo">
+        <input type="hidden" id="veh-id">
+        <label>Marca *</label>
+        <input type="text" id="veh-marca" required>
+        <label>Modelo *</label>
+        <input type="text" id="veh-modelo" required>
+        <label>Año *</label>
+        <input type="number" id="veh-anio" required>
+        <label>Placas / Matrícula *</label>
+        <input type="text" id="veh-placas" required>
+        <label>Kilometraje Actual</label>
+        <input type="number" id="veh-km">
+        <div class="modal-actions">
+          <button type="submit" class="btn">Guardar Vehículo</button>
+          <button type="button" class="btn btn-secondary" onclick="cerrarModales()">Cancelar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: Registrar / Editar Servicio -->
+  <div id="modal-servicio" class="modal hidden">
+    <div class="modal-content">
+      <h3 id="modal-srv-titulo">Orden de Servicio</h3>
+      <form id="form-servicio">
+        <input type="hidden" id="srv-id">
+        <input type="hidden" id="srv-vehiculo-id">
+        <label>Fecha de Ingreso</label>
+        <input type="date" id="srv-fecha">
+        <label>Motivo de Ingreso / Falla Reportada *</label>
+        <textarea id="srv-diagnostico" rows="2" required></textarea>
+        <label>Trabajo Realizado y Refacciones</label>
+        <textarea id="srv-trabajo" rows="2"></textarea>
+        <label>Costo Refacciones ($)</label>
+        <input type="number" step="0.01" id="srv-costo-piezas" value="0">
+        <label>Costo Mano de Obra ($)</label>
+        <input type="number" step="0.01" id="srv-costo-obra" value="0">
+        <label>Estado del Servicio</label>
+        <select id="srv-estado">
+          <option value="Pendiente">Pendiente</option>
+          <option value="En Proceso">En Proceso</option>
+          <option value="Completado">Completado</option>
+          <option value="Entregado">Entregado</option>
+        </select>
+        <div class="modal-actions">
+          <button type="submit" class="btn">Guardar Orden</button>
+          <button type="button" class="btn btn-secondary" onclick="cerrarModales()">Cancelar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <footer>
+    <p>DEV OSCAR D — TALLER MECÁNICO SYSTEM</p>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>

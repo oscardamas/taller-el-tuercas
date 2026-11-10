@@ -1,0 +1,10 @@
+# Dependencias pesadas
+node_modules/
+
+# Archivos de base de datos local
+*.db
+taller.db
+
+# Archivos del sistema operativo y variables de entorno
+.DS_Store
+.env
