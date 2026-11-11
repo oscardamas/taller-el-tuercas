@@ -278,3 +278,41 @@ footer {
   background: #1f2631;
   transform: translateY(-2px);
 }
+
+/* SISTEMA DE LOGIN (GLASSMORPHISM) */
+#login-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(17, 20, 24, 0.75); /* Fondo oscuro translúcido */
+  backdrop-filter: blur(12px); /* Difuminado o Glassmorphism */
+  -webkit-backdrop-filter: blur(12px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+}
+
+.login-box {
+  background: var(--card-bg);
+  padding: 40px;
+  border-radius: 12px;
+  border: 1px solid var(--accent);
+  box-shadow: 0 10px 40px rgba(0,0,0,0.8);
+  width: 100%;
+  max-width: 400px;
+  text-align: center;
+}
+
+.login-box h2 {
+  color: var(--accent);
+  margin-top: 0;
+  margin-bottom: 20px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+}
+
+#user-menu {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}

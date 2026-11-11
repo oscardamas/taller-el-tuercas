@@ -7,7 +7,23 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <div class="container">
+
+  <!-- PANTALLA DE LOGIN CON DIFUMINADO (Se oculta al iniciar sesión) -->
+  <div id="login-overlay">
+    <div class="login-box">
+      <h2>⚙️ Acceso al Sistema</h2>
+      <form id="form-login">
+        <label style="text-align: left;">Usuario</label>
+        <input type="text" id="login-user" required placeholder="Ingresa tu usuario" autocomplete="off">
+        <label style="text-align: left;">Contraseña</label>
+        <input type="password" id="login-pass" required placeholder="••••••••" style="margin-bottom: 20px;">
+        <button type="submit" class="btn" style="width: 100%;">Iniciar Sesión</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- CONTENEDOR PRINCIPAL (Oculto hasta hacer login) -->
+  <div class="container" id="main-container" style="display: none;">
     
     <!-- BARRA DE ACCESOS RÁPIDOS PARA EL ADMINISTRADOR -->
     <nav class="quick-links-bar">
@@ -16,11 +32,17 @@
       <a href="https://web.whatsapp.com" target="_blank" rel="noopener noreferrer" class="quick-link-btn">💬 WhatsApp Web</a>
       <a href="https://www.facebook.com" target="_blank" rel="noopener noreferrer" class="quick-link-btn">📘 Facebook</a>
       <a href="https://mail.google.com" target="_blank" rel="noopener noreferrer" class="quick-link-btn">✉️ Gmail</a>
-      <a href="https://outlook.live.com" target="_blank" rel="noopener noreferrer" class="quick-link-btn">📧 Hotmail / Outlook</a>
+      <a href="https://outlook.live.com" target="_blank" rel="noopener noreferrer" class="quick-link-btn">📧 Hotmail</a>
+      
+      <!-- Menú de Usuario -->
+      <div id="user-menu" style="margin-left: auto;">
+        <button id="btn-admin-usuarios" class="btn btn-secondary btn-sm hidden">👥 Admin. Usuarios</button>
+        <button id="btn-logout" class="btn btn-sm" style="background: #ef4444;">🚪 Salir</button>
+      </div>
     </nav>
 
     <header>
-      <h1>⚙️ TU TALLER MECANICO ⚙️</h1>
+      <h1>⚙️ TALLER EL TUERCAS ⚙️</h1>
       <p class="subtitle">SISTEMA DE ADMINISTRACIÓN AUTOMOTRIZ</p>
     </header>
 
@@ -88,6 +110,34 @@
         <div id="exp-vehiculos"></div>
       </section>
     </div>
+    
+    <footer>
+      <p>DEV OSCAR D — TALLER MECÁNICO SYSTEM</p>
+    </footer>
+  </div>
+
+  <!-- MODAL: Administrar Usuarios (Solo Admin) -->
+  <div id="modal-usuarios" class="modal hidden">
+    <div class="modal-content">
+      <h3>👥 Administración de Usuarios</h3>
+      <div id="lista-usuarios" style="margin-bottom: 20px; display: flex; flex-direction: column; gap: 8px;"></div>
+      
+      <h4>Crear Nuevo Usuario</h4>
+      <form id="form-nuevo-usuario">
+        <div style="display: flex; gap: 10px;">
+          <input type="text" id="nuevo-user" placeholder="Nombre de usuario" required>
+          <input type="password" id="nuevo-pass" placeholder="Contraseña" required>
+          <select id="nuevo-rol">
+            <option value="empleado">Empleado</option>
+            <option value="admin">Administrador</option>
+          </select>
+        </div>
+        <div class="modal-actions">
+          <button type="submit" class="btn">Crear Usuario</button>
+          <button type="button" class="btn btn-secondary" onclick="cerrarModales()">Cerrar</button>
+        </div>
+      </form>
+    </div>
   </div>
 
   <!-- MODAL: Editar Cliente -->
@@ -138,7 +188,7 @@
 
   <!-- MODAL: Registrar / Editar Orden de Servicio -->
   <div id="modal-servicio" class="modal hidden">
-    <div class="modal-content" style="max-width: 650px;">
+    <div class="modal-content" style="max-width: 600px;">
       <h3 id="modal-srv-titulo">Orden de Servicio</h3>
       <form id="form-servicio">
         <input type="hidden" id="srv-id">
@@ -189,10 +239,6 @@
       </form>
     </div>
   </div>
-
-  <footer>
-    <p>DEV OSCAR D — TALLER MECÁNICO SYSTEM</p>
-  </footer>
 
   <script src="app.js"></script>
 </body>

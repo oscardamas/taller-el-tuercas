@@ -1,25 +1,101 @@
-// app.js - Gestión de interfaz de cliente y órdenes de servicio
+// app.js - Gestión de interfaz, seguridad y órdenes de servicio
 let clienteActualId = null;
 let clienteDataGlobal = null;
 let refaccionesTemporales = [];
 
+// --- SISTEMA DE LOGIN Y SEGURIDAD ---
+let token = localStorage.getItem('taller_token');
+let rolUsuario = localStorage.getItem('taller_rol');
+
+// Función Wrapper para inyectar el Token en cada petición HTTP
+async function fetchSeguro(url, options = {}) {
+  const headers = {
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${token}`
+  };
+  const config = { ...options, headers: { ...headers, ...options.headers } };
+  
+  const res = await fetch(url, config);
+  if (res.status === 401 || res.status === 403) {
+    cerrarSesion();
+    alert('Tu sesión ha expirado o no tienes permisos para realizar esta acción.');
+    throw new Error('No autorizado');
+  }
+  return res;
+}
+
 document.addEventListener('DOMContentLoaded', () => {
-  // Evento Búsqueda por teléfono
+  verificarSesionActiva();
+
+  // --- EVENTOS DE LOGIN Y SESIÓN ---
+  document.getElementById('form-login').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const username = document.getElementById('login-user').value;
+    const password = document.getElementById('login-pass').value;
+
+    try {
+      const res = await fetch('/api/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password })
+      });
+      const data = await res.json();
+      
+      if (res.ok) {
+        token = data.token;
+        rolUsuario = data.rol;
+        localStorage.setItem('taller_token', token);
+        localStorage.setItem('taller_rol', rolUsuario);
+        document.getElementById('form-login').reset();
+        verificarSesionActiva();
+      } else {
+        alert(data.error);
+      }
+    } catch (error) {
+      console.error('Error en login:', error);
+    }
+  });
+
+  document.getElementById('btn-logout').addEventListener('click', cerrarSesion);
+  document.getElementById('btn-admin-usuarios').addEventListener('click', abrirModalUsuarios);
+
+  // --- EVENTOS DE ADMINISTRACIÓN DE USUARIOS ---
+  document.getElementById('form-nuevo-usuario').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const user = document.getElementById('nuevo-user').value;
+    const pass = document.getElementById('nuevo-pass').value;
+    const rol = document.getElementById('nuevo-rol').value;
+
+    try {
+      const res = await fetchSeguro('/api/usuarios', {
+        method: 'POST',
+        body: JSON.stringify({ username: user, password: pass, rol: rol })
+      });
+      if (res.ok) {
+        document.getElementById('form-nuevo-usuario').reset();
+        cargarUsuarios();
+      } else {
+        const err = await res.json();
+        alert(err.error);
+      }
+    } catch(err) {
+      console.error(err);
+    }
+  });
+
+  // --- EVENTOS DEL SISTEMA DE TALLER ---
   document.getElementById('btn-buscar').addEventListener('click', buscarClientePorTelefono);
   document.getElementById('input-buscar-telefono').addEventListener('keyup', (e) => {
     if (e.key === 'Enter') buscarClientePorTelefono();
   });
 
-  // Evento Añadir Refacción Dinámica
   document.getElementById('btn-agregar-refaccion').addEventListener('click', agregarRefaccionDinamica);
   document.getElementById('ref-precio').addEventListener('keyup', (e) => {
     if (e.key === 'Enter') agregarRefaccionDinamica();
   });
 
-  // Evento Recalcular Total al cambiar la Mano de Obra
   document.getElementById('srv-costo-obra').addEventListener('input', calcularTotalesFormulario);
 
-  // Evento Registrar Cliente
   document.getElementById('form-cliente').addEventListener('submit', async (e) => {
     e.preventDefault();
     const data = {
@@ -28,21 +104,18 @@ document.addEventListener('DOMContentLoaded', () => {
       email: document.getElementById('cli-email').value,
       notas: document.getElementById('cli-notas').value
     };
-    const res = await fetch('/api/clientes', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data)
-    });
-    const result = await res.json();
-    if (res.ok) {
-      document.getElementById('form-cliente').reset();
-      cargarExpedienteCompleto(result.id);
-    } else {
-      alert(result.error);
-    }
+    try {
+      const res = await fetchSeguro('/api/clientes', { method: 'POST', body: JSON.stringify(data) });
+      const result = await res.json();
+      if (res.ok) {
+        document.getElementById('form-cliente').reset();
+        cargarExpedienteCompleto(result.id);
+      } else {
+        alert(result.error);
+      }
+    } catch (err) { console.error(err); }
   });
 
-  // Evento Guardar Edición Cliente
   document.getElementById('form-edit-cliente').addEventListener('submit', async (e) => {
     e.preventDefault();
     const id = document.getElementById('edit-cli-id').value;
@@ -52,16 +125,13 @@ document.addEventListener('DOMContentLoaded', () => {
       email: document.getElementById('edit-cli-email').value,
       notas: document.getElementById('edit-cli-notas').value
     };
-    await fetch(`/api/clientes/${id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data)
-    });
-    cerrarModales();
-    cargarExpedienteCompleto(id);
+    try {
+      await fetchSeguro(`/api/clientes/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+      cerrarModales();
+      cargarExpedienteCompleto(id);
+    } catch (err) { console.error(err); }
   });
 
-  // Evento Guardar Vehículo
   document.getElementById('form-vehiculo').addEventListener('submit', async (e) => {
     e.preventDefault();
     const vehId = document.getElementById('veh-id').value;
@@ -77,21 +147,18 @@ document.addEventListener('DOMContentLoaded', () => {
     const method = vehId ? 'PUT' : 'POST';
     const url = vehId ? `/api/vehiculos/${vehId}` : '/api/vehiculos';
 
-    const res = await fetch(url, {
-      method,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data)
-    });
-    if (res.ok) {
-      cerrarModales();
-      cargarExpedienteCompleto(clienteActualId);
-    } else {
-      const err = await res.json();
-      alert(err.error);
-    }
+    try {
+      const res = await fetchSeguro(url, { method, body: JSON.stringify(data) });
+      if (res.ok) {
+        cerrarModales();
+        cargarExpedienteCompleto(clienteActualId);
+      } else {
+        const err = await res.json();
+        alert(err.error);
+      }
+    } catch (err) { console.error(err); }
   });
 
-  // Evento Guardar Orden de Servicio
   document.getElementById('form-servicio').addEventListener('submit', async (e) => {
     e.preventDefault();
     const srvId = document.getElementById('srv-id').value;
@@ -109,24 +176,17 @@ document.addEventListener('DOMContentLoaded', () => {
     const method = srvId ? 'PUT' : 'POST';
     const url = srvId ? `/api/servicios/${srvId}` : '/api/servicios';
 
-    const res = await fetch(url, {
-      method,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data)
-    });
-
-    if (res.ok) {
-      cerrarModales();
-      cargarExpedienteCompleto(clienteActualId);
-    }
+    try {
+      const res = await fetchSeguro(url, { method, body: JSON.stringify(data) });
+      if (res.ok) {
+        cerrarModales();
+        cargarExpedienteCompleto(clienteActualId);
+      }
+    } catch (err) { console.error(err); }
   });
 
-  // Botón Abrir Modal Nuevo Vehículo
-  document.getElementById('btn-nuevo-vehiculo').addEventListener('click', () => {
-    abrirModalVehiculo();
-  });
+  document.getElementById('btn-nuevo-vehiculo').addEventListener('click', () => { abrirModalVehiculo(); });
 
-  // Botón Abrir Modal Editar Cliente
   document.getElementById('btn-editar-cliente').addEventListener('click', () => {
     if (!clienteDataGlobal) return;
     document.getElementById('edit-cli-id').value = clienteDataGlobal.id;
@@ -138,7 +198,67 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 });
 
-// LÓGICA DE AÑADIR/ELIMINAR REFACCIONES DINÁMICAS
+// --- FUNCIONES DE SEGURIDAD ---
+function verificarSesionActiva() {
+  if (token) {
+    document.getElementById('login-overlay').classList.add('hidden');
+    document.getElementById('main-container').style.display = 'block';
+    if (rolUsuario === 'admin') {
+      document.getElementById('btn-admin-usuarios').classList.remove('hidden');
+    } else {
+      document.getElementById('btn-admin-usuarios').classList.add('hidden');
+    }
+  } else {
+    document.getElementById('login-overlay').classList.remove('hidden');
+    document.getElementById('main-container').style.display = 'none';
+  }
+}
+
+function cerrarSesion() {
+  token = null;
+  rolUsuario = null;
+  localStorage.removeItem('taller_token');
+  localStorage.removeItem('taller_rol');
+  verificarSesionActiva();
+}
+
+async function abrirModalUsuarios() {
+  await cargarUsuarios();
+  document.getElementById('modal-usuarios').classList.remove('hidden');
+}
+
+async function cargarUsuarios() {
+  const contenedor = document.getElementById('lista-usuarios');
+  contenedor.innerHTML = '<p style="color: var(--text-muted);">Cargando usuarios...</p>';
+  try {
+    const res = await fetchSeguro('/api/usuarios');
+    const usuarios = await res.json();
+    contenedor.innerHTML = usuarios.map(u => `
+      <div class="result-item" style="display:flex; justify-content:space-between; align-items:center;">
+        <span>👤 <strong>${u.username}</strong> <small style="color: var(--text-muted);">(${u.rol})</small></span>
+        <button class="ref-item-btn-del" onclick="eliminarUsuario(${u.id})">Borrar</button>
+      </div>
+    `).join('');
+  } catch (e) {
+    contenedor.innerHTML = '<p style="color: red;">Error al cargar la lista.</p>';
+  }
+}
+
+async function eliminarUsuario(id) {
+  if (confirm('¿Seguro que deseas eliminar este usuario del sistema?')) {
+    try {
+      const res = await fetchSeguro(`/api/usuarios/${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        cargarUsuarios();
+      } else {
+        const err = await res.json();
+        alert(err.error);
+      }
+    } catch (e) { console.error(e); }
+  }
+}
+
+// --- LÓGICA DE REFACCIONES DINÁMICAS ---
 function agregarRefaccionDinamica() {
   const nombreInput = document.getElementById('ref-nombre');
   const precioInput = document.getElementById('ref-precio');
@@ -166,7 +286,6 @@ function eliminarRefaccionDinamica(index) {
 function renderizarRefaccionesFormulario() {
   const contenedor = document.getElementById('lista-refacciones');
   contenedor.innerHTML = '';
-
   let totalPiezas = 0;
 
   refaccionesTemporales.forEach((item, index) => {
@@ -188,12 +307,10 @@ function renderizarRefaccionesFormulario() {
 }
 
 function calcularTotalesFormulario() {
-  // Función auxiliar para actualización reactiva del subtotal de refacciones
-  const subtotalPiezas = parseFloat(document.getElementById('srv-costo-piezas').value) || 0;
-  const manoObra = parseFloat(document.getElementById('srv-costo-obra').value) || 0;
+  // Dispara el evento visualmente
 }
 
-// 1. Buscar cliente por número de teléfono
+// --- FUNCIONES CORE DEL TALLER ---
 async function buscarClientePorTelefono() {
   const telefono = document.getElementById('input-buscar-telefono').value.trim();
   const contenedor = document.getElementById('resultados-busqueda');
@@ -202,7 +319,7 @@ async function buscarClientePorTelefono() {
   if (!telefono) return;
 
   try {
-    const res = await fetch(`/api/clientes/buscar?telefono=${encodeURIComponent(telefono)}`);
+    const res = await fetchSeguro(`/api/clientes/buscar?telefono=${encodeURIComponent(telefono)}`);
     const clientes = await res.json();
 
     if (clientes.length === 0) {
@@ -226,58 +343,55 @@ async function buscarClientePorTelefono() {
       };
       contenedor.appendChild(div);
     });
-  } catch (error) {
-    console.error('Error al buscar cliente:', error);
-  }
+  } catch (error) { console.error('Error al buscar cliente:', error); }
 }
 
-// 2. Cargar expediente completo
 async function cargarExpedienteCompleto(clienteId) {
   clienteActualId = clienteId;
-  const res = await fetch(`/api/clientes/${clienteId}/completo`);
-  const data = await res.json();
-  clienteDataGlobal = data;
+  try {
+    const res = await fetchSeguro(`/api/clientes/${clienteId}/completo`);
+    const data = await res.json();
+    clienteDataGlobal = data;
 
-  const expedienteEl = document.getElementById('expediente-cliente');
-  expedienteEl.classList.remove('hidden');
-  document.getElementById('exp-nombre').innerText = `👤 ${data.nombre}`;
-  document.getElementById('exp-datos').innerHTML = `
-    <p><strong>Teléfono:</strong> ${data.telefono}</p>
-    <p><strong>Email:</strong> ${data.email || 'No registrado'}</p>
-    <p><strong>Notas:</strong> ${data.notas || 'Sin observaciones'}</p>
-  `;
+    const expedienteEl = document.getElementById('expediente-cliente');
+    expedienteEl.classList.remove('hidden');
+    document.getElementById('exp-nombre').innerText = `👤 ${data.nombre}`;
+    document.getElementById('exp-datos').innerHTML = `
+      <p><strong>Teléfono:</strong> ${data.telefono}</p>
+      <p><strong>Email:</strong> ${data.email || 'No registrado'}</p>
+      <p><strong>Notas:</strong> ${data.notas || 'Sin observaciones'}</p>
+    `;
 
-  const contVehiculos = document.getElementById('exp-vehiculos');
-  contVehiculos.innerHTML = '';
+    const contVehiculos = document.getElementById('exp-vehiculos');
+    contVehiculos.innerHTML = '';
 
-  if (!data.vehiculos || data.vehiculos.length === 0) {
-    contVehiculos.innerHTML = '<p style="color: var(--text-muted);">Sin vehículos registrados.</p>';
-  } else {
-    data.vehiculos.forEach(v => {
-      const card = document.createElement('div');
-      card.className = 'vehicle-card';
-      card.innerHTML = `
-        <div class="vehicle-header">
-          <h4>🚘 ${v.marca} ${v.modelo} (${v.anio}) - Placas: ${v.placas}</h4>
-          <div>
-            <button class="btn btn-secondary btn-sm" onclick='abrirModalVehiculo(${JSON.stringify(v)})'>✏️ Editar Auto</button>
-            <button class="btn btn-sm" onclick="abrirModalServicio(${v.id})">➕ Nueva Orden</button>
+    if (!data.vehiculos || data.vehiculos.length === 0) {
+      contVehiculos.innerHTML = '<p style="color: var(--text-muted);">Sin vehículos registrados.</p>';
+    } else {
+      data.vehiculos.forEach(v => {
+        const card = document.createElement('div');
+        card.className = 'vehicle-card';
+        card.innerHTML = `
+          <div class="vehicle-header">
+            <h4>🚘 ${v.marca} ${v.modelo} (${v.anio}) - Placas: ${v.placas}</h4>
+            <div>
+              <button class="btn btn-secondary btn-sm" onclick='abrirModalVehiculo(${JSON.stringify(v)})'>✏️ Editar Auto</button>
+              <button class="btn btn-sm" onclick="abrirModalServicio(${v.id})">➕ Nueva Orden</button>
+            </div>
           </div>
-        </div>
-        <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 4px;">Kilometraje: ${v.kilometraje ? v.kilometraje.toLocaleString() : 0} km</p>
-        <div class="services-list">
-          <h5>Historial de Servicios:</h5>
-          ${renderizarServicios(v.servicios)}
-        </div>
-      `;
-      contVehiculos.appendChild(card);
-    });
-  }
-
-  expedienteEl.scrollIntoView({ behavior: 'smooth' });
+          <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 4px;">Kilometraje: ${v.kilometraje ? v.kilometraje.toLocaleString() : 0} km</p>
+          <div class="services-list">
+            <h5>Historial de Servicios:</h5>
+            ${renderizarServicios(v.servicios)}
+          </div>
+        `;
+        contVehiculos.appendChild(card);
+      });
+    }
+    expedienteEl.scrollIntoView({ behavior: 'smooth' });
+  } catch (err) { console.error(err); }
 }
 
-// 3. Renderizar tarjetas de servicios
 function renderizarServicios(servicios) {
   if (!servicios || servicios.length === 0) {
     return '<p style="color: var(--text-muted); font-size: 0.85rem;">No hay órdenes de trabajo registradas.</p>';
@@ -306,7 +420,6 @@ function renderizarServicios(servicios) {
   }).join('');
 }
 
-// 4. Filtrar por Estado
 async function filtrarPorEstado(estado) {
   const contenedor = document.getElementById('contenedor-estado-servicios');
   contenedor.innerHTML = '';
@@ -316,40 +429,41 @@ async function filtrarPorEstado(estado) {
     return;
   }
 
-  const res = await fetch(`/api/servicios/estado/${encodeURIComponent(estado)}`);
-  const lista = await res.json();
+  try {
+    const res = await fetchSeguro(`/api/servicios/estado/${encodeURIComponent(estado)}`);
+    const lista = await res.json();
 
-  if (lista.length === 0) {
-    contenedor.innerHTML = `<p style="color: var(--text-muted); font-size: 0.9rem;">No hay órdenes registradas con el estado "${estado}".</p>`;
-    return;
-  }
+    if (lista.length === 0) {
+      contenedor.innerHTML = `<p style="color: var(--text-muted); font-size: 0.9rem;">No hay órdenes registradas con el estado "${estado}".</p>`;
+      return;
+    }
 
-  lista.forEach(item => {
-    const total = (Number(item.costo_piezas) + Number(item.costo_mano_obra)).toFixed(2);
-    const estadoClass = item.estado.replace(/\s+/g, '-');
+    lista.forEach(item => {
+      const total = (Number(item.costo_piezas) + Number(item.costo_mano_obra)).toFixed(2);
+      const estadoClass = item.estado.replace(/\s+/g, '-');
 
-    const card = document.createElement('div');
-    card.className = 'vehicle-card';
-    card.style.marginBottom = '12px';
-    card.innerHTML = `
-      <div class="vehicle-header">
-        <h4>🚘 ${item.marca} ${item.modelo} (${item.anio}) — Placas: ${item.placas}</h4>
-        <span class="badge badge-${estadoClass}">${item.estado}</span>
-      </div>
-      <p style="margin: 4px 0;"><strong>👤 Cliente:</strong> ${item.cliente_nombre} | 📞 <strong>Tel:</strong> ${item.cliente_telefono}</p>
-      <p style="margin: 4px 0;"><strong>📅 Fecha Ingreso:</strong> ${item.fecha} | <strong>KM:</strong> ${item.kilometraje ? item.kilometraje.toLocaleString() : 0} km</p>
-      <div class="service-card" style="margin-top: 8px;">
-        <p><strong>Diagnóstico / Falla:</strong> ${item.diagnostico}</p>
-        <p><strong>Observaciones:</strong> ${item.trabajo_realizado || 'Pendiente'}</p>
-        <p><strong>Costo Estimado/Total:</strong> $${total} MXN</p>
-      </div>
-      <button class="btn btn-secondary btn-sm" style="margin-top: 10px;" onclick="cargarExpedienteCompleto(${item.cliente_id})">Ver expediente completo de ${item.cliente_nombre}</button>
-    `;
-    contenedor.appendChild(card);
-  });
+      const card = document.createElement('div');
+      card.className = 'vehicle-card';
+      card.style.marginBottom = '12px';
+      card.innerHTML = `
+        <div class="vehicle-header">
+          <h4>🚘 ${item.marca} ${item.modelo} (${item.anio}) — Placas: ${item.placas}</h4>
+          <span class="badge badge-${estadoClass}">${item.estado}</span>
+        </div>
+        <p style="margin: 4px 0;"><strong>👤 Cliente:</strong> ${item.cliente_nombre} | 📞 <strong>Tel:</strong> ${item.cliente_telefono}</p>
+        <p style="margin: 4px 0;"><strong>📅 Fecha Ingreso:</strong> ${item.fecha} | <strong>KM:</strong> ${item.kilometraje ? item.kilometraje.toLocaleString() : 0} km</p>
+        <div class="service-card" style="margin-top: 8px;">
+          <p><strong>Diagnóstico / Falla:</strong> ${item.diagnostico}</p>
+          <p><strong>Observaciones:</strong> ${item.trabajo_realizado || 'Pendiente'}</p>
+          <p><strong>Costo Estimado/Total:</strong> $${total} MXN</p>
+        </div>
+        <button class="btn btn-secondary btn-sm" style="margin-top: 10px;" onclick="cargarExpedienteCompleto(${item.cliente_id})">Ver expediente completo de ${item.cliente_nombre}</button>
+      `;
+      contenedor.appendChild(card);
+    });
+  } catch (error) { console.error(error); }
 }
 
-// 5. Generar Comprobante PDF / Impresión con Desglose de Refacciones
 function imprimirNota(servicio) {
   if (!clienteDataGlobal) {
     alert('No hay información de cliente cargada.');
@@ -359,47 +473,25 @@ function imprimirNota(servicio) {
   const vehiculo = (clienteDataGlobal.vehiculos || []).find(v => Number(v.id) === Number(servicio.vehiculo_id)) || {};
   const total = (Number(servicio.costo_piezas) + Number(servicio.costo_mano_obra)).toFixed(2);
 
-  // Obtener arreglo de refacciones guardadas
   let listaRefacciones = [];
   if (servicio.refacciones) {
     try {
       listaRefacciones = typeof servicio.refacciones === 'string' ? JSON.parse(servicio.refacciones) : servicio.refacciones;
-    } catch (e) {
-      listaRefacciones = [];
-    }
+    } catch (e) { listaRefacciones = []; }
   }
 
-  // Construcción dinámica de la tabla de conceptos
   let filasTabla = '';
-
   if (listaRefacciones && listaRefacciones.length > 0) {
     listaRefacciones.forEach(item => {
-      filasTabla += `
-        <tr>
-          <td>🔧 Refacción: ${item.descripcion}</td>
-          <td style="text-align: right;">$${Number(item.precio).toFixed(2)}</td>
-        </tr>
-      `;
+      filasTabla += `<tr><td>🔧 Refacción: ${item.descripcion}</td><td style="text-align: right;">$${Number(item.precio).toFixed(2)}</td></tr>`;
     });
   } else if (Number(servicio.costo_piezas) > 0) {
-    filasTabla += `
-      <tr>
-        <td>🔧 Refacciones y Consumibles (General)</td>
-        <td style="text-align: right;">$${Number(servicio.costo_piezas).toFixed(2)}</td>
-      </tr>
-    `;
+    filasTabla += `<tr><td>🔧 Refacciones y Consumibles (General)</td><td style="text-align: right;">$${Number(servicio.costo_piezas).toFixed(2)}</td></tr>`;
   }
 
-  // Fila para Mano de Obra
-  filasTabla += `
-    <tr>
-      <td>🛠️ Mano de Obra Especializada</td>
-      <td style="text-align: right;">$${Number(servicio.costo_mano_obra).toFixed(2)}</td>
-    </tr>
-  `;
+  filasTabla += `<tr><td>🛠️ Mano de Obra Especializada</td><td style="text-align: right;">$${Number(servicio.costo_mano_obra).toFixed(2)}</td></tr>`;
 
   const ventanaImpresion = window.open('', '_blank', 'width=800,height=700');
-
   const contenidoHTML = `
     <!DOCTYPE html>
     <html lang="es">
@@ -431,7 +523,6 @@ function imprimirNota(servicio) {
         <p>SERVICIO MECANICO AUTOMOTRIZ</p>
         <div class="folio">Orden N°: #${servicio.id} | Fecha: ${servicio.fecha}</div>
       </div>
-
       <div class="grid">
         <div class="box">
           <div class="box-title">👤 Datos del Cliente</div>
@@ -446,46 +537,34 @@ function imprimirNota(servicio) {
           <p><strong>Kilometraje:</strong> ${vehiculo.kilometraje ? vehiculo.kilometraje.toLocaleString() + ' km' : 'N/A'}</p>
         </div>
       </div>
-
       <div class="service-details">
         <div class="box-title">📋 Detalle del Servicio</div>
         <p><strong>Motivo de Ingreso / Falla Reportada:</strong> ${servicio.diagnostico}</p>
         <p><strong>Comentarios Generales:</strong> ${servicio.trabajo_realizado || 'Sin observaciones registradas'}</p>
         <p><strong>Estado Actual:</strong> <strong>${servicio.estado}</strong></p>
       </div>
-
       <table>
         <thead>
-          <tr>
-            <th>Concepto / Desglose de Refacción y Trabajo</th>
-            <th style="text-align: right; width: 140px;">Importe ($)</th>
-          </tr>
+          <tr><th>Concepto / Desglose de Refacción y Trabajo</th><th style="text-align: right; width: 140px;">Importe ($)</th></tr>
         </thead>
         <tbody>
           ${filasTabla}
         </tbody>
       </table>
-
       <div class="total-container">
         <p>Total Importe: <span class="total-amount">$${total} MXN</span></p>
       </div>
-
       <div class="footer">
         <p>Gracias por su confianza. Tu Taller Mecánico.</p>
       </div>
-
-      <script>
-        window.onload = function() { window.print(); };
-      </script>
+      <script>window.onload = function() { window.print(); };</script>
     </body>
     </html>
   `;
-
   ventanaImpresion.document.write(contenidoHTML);
   ventanaImpresion.document.close();
 }
 
-// Controladores de Modales
 function abrirModalVehiculo(vehiculo = null) {
   document.getElementById('form-vehiculo').reset();
   if (vehiculo) {
@@ -520,9 +599,7 @@ function abrirModalServicio(vehiculoId = null, servicio = null) {
     if (servicio.refacciones) {
       try {
         refaccionesTemporales = typeof servicio.refacciones === 'string' ? JSON.parse(servicio.refacciones) : servicio.refacciones;
-      } catch (e) {
-        refaccionesTemporales = [];
-      }
+      } catch (e) { refaccionesTemporales = []; }
     }
   } else {
     document.getElementById('modal-srv-titulo').innerText = 'Nueva Orden de Servicio';
@@ -540,4 +617,5 @@ function cerrarModales() {
   document.getElementById('modal-cliente').classList.add('hidden');
   document.getElementById('modal-vehiculo').classList.add('hidden');
   document.getElementById('modal-servicio').classList.add('hidden');
+  document.getElementById('modal-usuarios').classList.add('hidden');
 }
