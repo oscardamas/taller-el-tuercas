@@ -19,7 +19,7 @@ if (usePostgres) {
     ssl: { rejectUnauthorized: false }
   });
 
-  // Creación automática de tablas si no existen en PostgreSQL
+  // Creación e integración automática de la columna refacciones en PostgreSQL
   pool.query(`
     CREATE TABLE IF NOT EXISTS clientes (
       id SERIAL PRIMARY KEY,
@@ -46,8 +46,10 @@ if (usePostgres) {
       trabajo_realizado TEXT,
       costo_piezas NUMERIC(10,2) DEFAULT 0,
       costo_mano_obra NUMERIC(10,2) DEFAULT 0,
-      estado VARCHAR(50) DEFAULT 'Pendiente'
+      estado VARCHAR(50) DEFAULT 'Pendiente',
+      refacciones TEXT
     );
+    ALTER TABLE servicios ADD COLUMN IF NOT EXISTS refacciones TEXT;
   `).then(() => console.log('Modo Producción: Conectado exitosamente a PostgreSQL en Render.'))
     .catch(err => console.error('Error al inicializar tablas en PostgreSQL:', err.message));
 
@@ -70,7 +72,8 @@ if (usePostgres) {
   db.serialize(() => {
     db.run(`CREATE TABLE IF NOT EXISTS clientes (id INTEGER PRIMARY KEY AUTOINCREMENT, nombre TEXT NOT NULL, telefono TEXT NOT NULL UNIQUE, email TEXT, notas TEXT, fecha_registro DATETIME DEFAULT CURRENT_TIMESTAMP)`);
     db.run(`CREATE TABLE IF NOT EXISTS vehiculos (id INTEGER PRIMARY KEY AUTOINCREMENT, cliente_id INTEGER NOT NULL, marca TEXT NOT NULL, modelo TEXT NOT NULL, anio INTEGER NOT NULL, placas TEXT NOT NULL UNIQUE, kilometraje INTEGER DEFAULT 0)`);
-    db.run(`CREATE TABLE IF NOT EXISTS servicios (id INTEGER PRIMARY KEY AUTOINCREMENT, vehiculo_id INTEGER NOT NULL, fecha TEXT NOT NULL, diagnostico TEXT NOT NULL, trabajo_realizado TEXT, costo_piezas REAL DEFAULT 0, costo_mano_obra REAL DEFAULT 0, estado TEXT DEFAULT 'Pendiente')`);
+    db.run(`CREATE TABLE IF NOT EXISTS servicios (id INTEGER PRIMARY KEY AUTOINCREMENT, vehiculo_id INTEGER NOT NULL, fecha TEXT NOT NULL, diagnostico TEXT NOT NULL, trabajo_realizado TEXT, costo_piezas REAL DEFAULT 0, costo_mano_obra REAL DEFAULT 0, estado TEXT DEFAULT 'Pendiente', refacciones TEXT)`);
+    db.run(`ALTER TABLE servicios ADD COLUMN refacciones TEXT`, () => {});
   });
 
   queryDB = (text, params = []) => {
@@ -192,13 +195,13 @@ app.put('/api/vehiculos/:id', async (req, res) => {
 });
 
 app.post('/api/servicios', async (req, res) => {
-  const { vehiculo_id, fecha, diagnostico, trabajo_realizado, costo_piezas, costo_mano_obra, estado } = req.body;
+  const { vehiculo_id, fecha, diagnostico, trabajo_realizado, costo_piezas, costo_mano_obra, estado, refacciones } = req.body;
   const fechaFinal = fecha || new Date().toISOString().split('T')[0];
   try {
     const rows = await queryDB(
-      `INSERT INTO servicios (vehiculo_id, fecha, diagnostico, trabajo_realizado, costo_piezas, costo_mano_obra, estado)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-      [vehiculo_id, fechaFinal, diagnostico, trabajo_realizado || '', costo_piezas || 0, costo_mano_obra || 0, estado || 'Pendiente']
+      `INSERT INTO servicios (vehiculo_id, fecha, diagnostico, trabajo_realizado, costo_piezas, costo_mano_obra, estado, refacciones)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      [vehiculo_id, fechaFinal, diagnostico, trabajo_realizado || '', costo_piezas || 0, costo_mano_obra || 0, estado || 'Pendiente', refacciones || '[]']
     );
     res.json({ id: rows[0]?.id, message: 'Orden de servicio registrada.' });
   } catch (err) {
@@ -207,11 +210,11 @@ app.post('/api/servicios', async (req, res) => {
 });
 
 app.put('/api/servicios/:id', async (req, res) => {
-  const { fecha, diagnostico, trabajo_realizado, costo_piezas, costo_mano_obra, estado } = req.body;
+  const { fecha, diagnostico, trabajo_realizado, costo_piezas, costo_mano_obra, estado, refacciones } = req.body;
   try {
     await queryDB(
-      `UPDATE servicios SET fecha = $1, diagnostico = $2, trabajo_realizado = $3, costo_piezas = $4, costo_mano_obra = $5, estado = $6 WHERE id = $7`,
-      [fecha, diagnostico, trabajo_realizado, costo_piezas, costo_mano_obra, estado, req.params.id]
+      `UPDATE servicios SET fecha = $1, diagnostico = $2, trabajo_realizado = $3, costo_piezas = $4, costo_mano_obra = $5, estado = $6, refacciones = $7 WHERE id = $8`,
+      [fecha, diagnostico, trabajo_realizado, costo_piezas, costo_mano_obra, estado, refacciones || '[]', req.params.id]
     );
     res.json({ message: 'Servicio actualizado con éxito.' });
   } catch (err) {
@@ -223,7 +226,7 @@ app.get('/api/servicios/estado/:estado', async (req, res) => {
   const estado = req.params.estado;
   const sql = `
     SELECT 
-      s.id AS servicio_id, s.fecha, s.diagnostico, s.trabajo_realizado, s.costo_piezas, s.costo_mano_obra, s.estado,
+      s.id AS servicio_id, s.fecha, s.diagnostico, s.trabajo_realizado, s.costo_piezas, s.costo_mano_obra, s.estado, s.refacciones,
       v.id AS vehiculo_id, v.marca, v.modelo, v.anio, v.placas, v.kilometraje,
       c.id AS cliente_id, c.nombre AS cliente_nombre, c.telefono AS cliente_telefono
     FROM servicios s

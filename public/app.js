@@ -1,6 +1,7 @@
 // app.js - Gestión de interfaz de cliente y órdenes de servicio
 let clienteActualId = null;
 let clienteDataGlobal = null;
+let refaccionesTemporales = [];
 
 document.addEventListener('DOMContentLoaded', () => {
   // Evento Búsqueda por teléfono
@@ -8,6 +9,15 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('input-buscar-telefono').addEventListener('keyup', (e) => {
     if (e.key === 'Enter') buscarClientePorTelefono();
   });
+
+  // Evento Añadir Refacción Dinámica
+  document.getElementById('btn-agregar-refaccion').addEventListener('click', agregarRefaccionDinamica);
+  document.getElementById('ref-precio').addEventListener('keyup', (e) => {
+    if (e.key === 'Enter') agregarRefaccionDinamica();
+  });
+
+  // Evento Recalcular Total al cambiar la Mano de Obra
+  document.getElementById('srv-costo-obra').addEventListener('input', calcularTotalesFormulario);
 
   // Evento Registrar Cliente
   document.getElementById('form-cliente').addEventListener('submit', async (e) => {
@@ -90,6 +100,7 @@ document.addEventListener('DOMContentLoaded', () => {
       fecha: document.getElementById('srv-fecha').value,
       diagnostico: document.getElementById('srv-diagnostico').value,
       trabajo_realizado: document.getElementById('srv-trabajo').value,
+      refacciones: JSON.stringify(refaccionesTemporales),
       costo_piezas: parseFloat(document.getElementById('srv-costo-piezas').value) || 0,
       costo_mano_obra: parseFloat(document.getElementById('srv-costo-obra').value) || 0,
       estado: document.getElementById('srv-estado').value
@@ -127,6 +138,61 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 });
 
+// LÓGICA DE AÑADIR/ELIMINAR REFACCIONES DINÁMICAS
+function agregarRefaccionDinamica() {
+  const nombreInput = document.getElementById('ref-nombre');
+  const precioInput = document.getElementById('ref-precio');
+  const descripcion = nombreInput.value.trim();
+  const precio = parseFloat(precioInput.value) || 0;
+
+  if (!descripcion) {
+    alert('Ingresa una descripción o nombre para la refacción.');
+    return;
+  }
+
+  refaccionesTemporales.push({ descripcion, precio });
+  nombreInput.value = '';
+  precioInput.value = '';
+  nombreInput.focus();
+
+  renderizarRefaccionesFormulario();
+}
+
+function eliminarRefaccionDinamica(index) {
+  refaccionesTemporales.splice(index, 1);
+  renderizarRefaccionesFormulario();
+}
+
+function renderizarRefaccionesFormulario() {
+  const contenedor = document.getElementById('lista-refacciones');
+  contenedor.innerHTML = '';
+
+  let totalPiezas = 0;
+
+  refaccionesTemporales.forEach((item, index) => {
+    totalPiezas += item.precio;
+    const div = document.createElement('div');
+    div.className = 'ref-item';
+    div.innerHTML = `
+      <span>🔧 ${item.descripcion}</span>
+      <div>
+        <strong>$${item.precio.toFixed(2)}</strong>
+        <button type="button" class="ref-item-btn-del" onclick="eliminarRefaccionDinamica(${index})">❌</button>
+      </div>
+    `;
+    contenedor.appendChild(div);
+  });
+
+  document.getElementById('srv-costo-piezas').value = totalPiezas.toFixed(2);
+  calcularTotalesFormulario();
+}
+
+function calcularTotalesFormulario() {
+  // Función auxiliar para actualización reactiva del subtotal de refacciones
+  const subtotalPiezas = parseFloat(document.getElementById('srv-costo-piezas').value) || 0;
+  const manoObra = parseFloat(document.getElementById('srv-costo-obra').value) || 0;
+}
+
 // 1. Buscar cliente por número de teléfono
 async function buscarClientePorTelefono() {
   const telefono = document.getElementById('input-buscar-telefono').value.trim();
@@ -144,14 +210,12 @@ async function buscarClientePorTelefono() {
       return;
     }
 
-    // Carga automática del expediente si solo existe un único cliente con ese número
     if (clientes.length === 1) {
       cargarExpedienteCompleto(clientes[0].id);
       contenedor.innerHTML = '';
       return;
     }
 
-    // Si existen múltiples coincidencias, se despliega la lista interactiva
     clientes.forEach(c => {
       const div = document.createElement('div');
       div.className = 'result-item';
@@ -163,7 +227,7 @@ async function buscarClientePorTelefono() {
       contenedor.appendChild(div);
     });
   } catch (error) {
-    console.error('Error al realizar la búsqueda de cliente:', error);
+    console.error('Error al buscar cliente:', error);
   }
 }
 
@@ -210,7 +274,6 @@ async function cargarExpedienteCompleto(clienteId) {
     });
   }
 
-  // Desplazamiento suave para enfocar el expediente en la pantalla
   expedienteEl.scrollIntoView({ behavior: 'smooth' });
 }
 
@@ -236,14 +299,14 @@ function renderizarServicios(servicios) {
           </div>
         </div>
         <p><strong>Motivo/Falla:</strong> ${s.diagnostico}</p>
-        <p><strong>Trabajo:</strong> ${s.trabajo_realizado || 'En diagnóstico'}</p>
+        <p><strong>Observaciones:</strong> ${s.trabajo_realizado || 'Sin comentarios registrados'}</p>
         <p><strong>Desglose:</strong> Piezas: $${Number(s.costo_piezas).toFixed(2)} | Mano de Obra: $${Number(s.costo_mano_obra).toFixed(2)} ➔ <strong>Total: $${total}</strong></p>
       </div>
     `;
   }).join('');
 }
 
-// 4. Filtrar y listar vehículos por estado del servicio
+// 4. Filtrar por Estado
 async function filtrarPorEstado(estado) {
   const contenedor = document.getElementById('contenedor-estado-servicios');
   contenedor.innerHTML = '';
@@ -277,7 +340,7 @@ async function filtrarPorEstado(estado) {
       <p style="margin: 4px 0;"><strong>📅 Fecha Ingreso:</strong> ${item.fecha} | <strong>KM:</strong> ${item.kilometraje ? item.kilometraje.toLocaleString() : 0} km</p>
       <div class="service-card" style="margin-top: 8px;">
         <p><strong>Diagnóstico / Falla:</strong> ${item.diagnostico}</p>
-        <p><strong>Trabajo Realizado:</strong> ${item.trabajo_realizado || 'Pendiente de ejecución'}</p>
+        <p><strong>Observaciones:</strong> ${item.trabajo_realizado || 'Pendiente'}</p>
         <p><strong>Costo Estimado/Total:</strong> $${total} MXN</p>
       </div>
       <button class="btn btn-secondary btn-sm" style="margin-top: 10px;" onclick="cargarExpedienteCompleto(${item.cliente_id})">Ver expediente completo de ${item.cliente_nombre}</button>
@@ -286,16 +349,54 @@ async function filtrarPorEstado(estado) {
   });
 }
 
-// 5. Generar PDF / Nota imprimible
+// 5. Generar Comprobante PDF / Impresión con Desglose de Refacciones
 function imprimirNota(servicio) {
   if (!clienteDataGlobal) {
     alert('No hay información de cliente cargada.');
     return;
   }
 
-  // Conversión explícita a Number para asegurar la búsqueda del vehículo
   const vehiculo = (clienteDataGlobal.vehiculos || []).find(v => Number(v.id) === Number(servicio.vehiculo_id)) || {};
   const total = (Number(servicio.costo_piezas) + Number(servicio.costo_mano_obra)).toFixed(2);
+
+  // Obtener arreglo de refacciones guardadas
+  let listaRefacciones = [];
+  if (servicio.refacciones) {
+    try {
+      listaRefacciones = typeof servicio.refacciones === 'string' ? JSON.parse(servicio.refacciones) : servicio.refacciones;
+    } catch (e) {
+      listaRefacciones = [];
+    }
+  }
+
+  // Construcción dinámica de la tabla de conceptos
+  let filasTabla = '';
+
+  if (listaRefacciones && listaRefacciones.length > 0) {
+    listaRefacciones.forEach(item => {
+      filasTabla += `
+        <tr>
+          <td>🔧 Refacción: ${item.descripcion}</td>
+          <td style="text-align: right;">$${Number(item.precio).toFixed(2)}</td>
+        </tr>
+      `;
+    });
+  } else if (Number(servicio.costo_piezas) > 0) {
+    filasTabla += `
+      <tr>
+        <td>🔧 Refacciones y Consumibles (General)</td>
+        <td style="text-align: right;">$${Number(servicio.costo_piezas).toFixed(2)}</td>
+      </tr>
+    `;
+  }
+
+  // Fila para Mano de Obra
+  filasTabla += `
+    <tr>
+      <td>🛠️ Mano de Obra Especializada</td>
+      <td style="text-align: right;">$${Number(servicio.costo_mano_obra).toFixed(2)}</td>
+    </tr>
+  `;
 
   const ventanaImpresion = window.open('', '_blank', 'width=800,height=700');
 
@@ -349,26 +450,19 @@ function imprimirNota(servicio) {
       <div class="service-details">
         <div class="box-title">📋 Detalle del Servicio</div>
         <p><strong>Motivo de Ingreso / Falla Reportada:</strong> ${servicio.diagnostico}</p>
-        <p><strong>Trabajo Realizado:</strong> ${servicio.trabajo_realizado || 'En diagnóstico'}</p>
+        <p><strong>Comentarios Generales:</strong> ${servicio.trabajo_realizado || 'Sin observaciones registrados'}</p>
         <p><strong>Estado Actual:</strong> <strong>${servicio.estado}</strong></p>
       </div>
 
       <table>
         <thead>
           <tr>
-            <th>Concepto / Descripción</th>
+            <th>Concepto / Desglose de Refacción y Trabajo</th>
             <th style="text-align: right; width: 140px;">Importe ($)</th>
           </tr>
         </thead>
         <tbody>
-          <tr>
-            <td>Refacciones y Consumibles</td>
-            <td style="text-align: right;">$${Number(servicio.costo_piezas).toFixed(2)}</td>
-          </tr>
-          <tr>
-            <td>Mano de Obra Especializada</td>
-            <td style="text-align: right;">$${Number(servicio.costo_mano_obra).toFixed(2)}</td>
-          </tr>
+          ${filasTabla}
         </tbody>
       </table>
 
@@ -411,22 +505,34 @@ function abrirModalVehiculo(vehiculo = null) {
 
 function abrirModalServicio(vehiculoId = null, servicio = null) {
   document.getElementById('form-servicio').reset();
+  refaccionesTemporales = [];
+
   if (servicio) {
     document.getElementById('modal-srv-titulo').innerText = 'Editar Orden de Servicio';
     document.getElementById('srv-id').value = servicio.id;
     document.getElementById('srv-vehiculo-id').value = servicio.vehiculo_id;
     document.getElementById('srv-fecha').value = servicio.fecha;
     document.getElementById('srv-diagnostico').value = servicio.diagnostico;
-    document.getElementById('srv-trabajo').value = servicio.trabajo_realizado;
-    document.getElementById('srv-costo-piezas').value = servicio.costo_piezas;
+    document.getElementById('srv-trabajo').value = servicio.trabajo_realizado || '';
     document.getElementById('srv-costo-obra').value = servicio.costo_mano_obra;
     document.getElementById('srv-estado').value = servicio.estado;
+
+    if (servicio.refacciones) {
+      try {
+        refaccionesTemporales = typeof servicio.refacciones === 'string' ? JSON.parse(servicio.refacciones) : servicio.refacciones;
+      } catch (e) {
+        refaccionesTemporales = [];
+      }
+    }
   } else {
     document.getElementById('modal-srv-titulo').innerText = 'Nueva Orden de Servicio';
     document.getElementById('srv-id').value = '';
     document.getElementById('srv-vehiculo-id').value = vehiculoId;
     document.getElementById('srv-fecha').value = new Date().toISOString().split('T')[0];
+    document.getElementById('srv-costo-obra').value = 0;
   }
+
+  renderizarRefaccionesFormulario();
   document.getElementById('modal-servicio').classList.remove('hidden');
 }
 
