@@ -410,8 +410,8 @@ function imprimirNota(servicio) {
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 30px; color: #1e293b; line-height: 1.5; }
         .header { text-align: center; border-bottom: 2px solid #ff4500; padding-bottom: 12px; margin-bottom: 20px; }
         .header h1 { margin: 0; font-size: 24px; color: #ff4500; text-transform: uppercase; }
-        .header p { margin: 3px 0; font-size: 13px; color: #64748b; }
-        .folio { font-weight: bold; color: #ff4500; font-size: 14px; margin-top: 5px; }
+        .header p { margin: 4px 0 0 0; font-size: 13px; color: #64748b; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; }
+        .folio { font-weight: bold; color: #ff4500; font-size: 14px; margin-top: 6px; }
         .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px; }
         .box { background: #f8fafc; border: 1px solid #e2e8f0; padding: 12px; border-radius: 6px; font-size: 13px; }
         .box-title { font-weight: bold; color: #0f172a; border-bottom: 1px solid #cbd5e1; padding-bottom: 4px; margin-bottom: 8px; text-transform: uppercase; font-size: 12px; }
@@ -427,8 +427,8 @@ function imprimirNota(servicio) {
     </head>
     <body>
       <div class="header">
-        <h1>⚙️ TALLER EL TUERCAS — COMPROBANTE DE SERVICIO</h1>
-        <p>Servicio Mecánico e Ingeniería Automotriz</p>
+        <h1>⚙️ TU TALLER MECANICO ⚙️</h1>
+        <p>SERVICIO MECANICO AUTOMOTRIZ</p>
         <div class="folio">Orden N°: #${servicio.id} | Fecha: ${servicio.fecha}</div>
       </div>
 
@@ -450,7 +450,7 @@ function imprimirNota(servicio) {
       <div class="service-details">
         <div class="box-title">📋 Detalle del Servicio</div>
         <p><strong>Motivo de Ingreso / Falla Reportada:</strong> ${servicio.diagnostico}</p>
-        <p><strong>Comentarios Generales:</strong> ${servicio.trabajo_realizado || 'Sin observaciones registrados'}</p>
+        <p><strong>Comentarios Generales:</strong> ${servicio.trabajo_realizado || 'Sin observaciones registradas'}</p>
         <p><strong>Estado Actual:</strong> <strong>${servicio.estado}</strong></p>
       </div>
 
@@ -471,7 +471,7 @@ function imprimirNota(servicio) {
       </div>
 
       <div class="footer">
-        <p>Gracias por su confianza. Taller El Tuercas.</p>
+        <p>Gracias por su confianza. Tu Taller Mecánico.</p>
       </div>
 
       <script>
