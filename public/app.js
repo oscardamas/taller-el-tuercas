@@ -1,3 +1,4 @@
+// app.js - Gestión de interfaz de cliente y órdenes de servicio
 let clienteActualId = null;
 let clienteDataGlobal = null;
 
@@ -134,24 +135,36 @@ async function buscarClientePorTelefono() {
 
   if (!telefono) return;
 
-  const res = await fetch(`/api/clientes/buscar?telefono=${encodeURIComponent(telefono)}`);
-  const clientes = await res.json();
+  try {
+    const res = await fetch(`/api/clientes/buscar?telefono=${encodeURIComponent(telefono)}`);
+    const clientes = await res.json();
 
-  if (clientes.length === 0) {
-    contenedor.innerHTML = '<p style="color: var(--text-muted); font-size: 0.9rem;">No se encontraron clientes registrados con ese número.</p>';
-    return;
-  }
+    if (clientes.length === 0) {
+      contenedor.innerHTML = '<p style="color: var(--text-muted); font-size: 0.9rem;">No se encontraron clientes registrados con ese número.</p>';
+      return;
+    }
 
-  clientes.forEach(c => {
-    const div = document.createElement('div');
-    div.className = 'result-item';
-    div.innerHTML = `<strong>${c.nombre}</strong> — 📞 ${c.telefono} ${c.email ? `(${c.email})` : ''}`;
-    div.onclick = () => {
-      cargarExpedienteCompleto(c.id);
+    // Carga automática del expediente si solo existe un único cliente con ese número
+    if (clientes.length === 1) {
+      cargarExpedienteCompleto(clientes[0].id);
       contenedor.innerHTML = '';
-    };
-    contenedor.appendChild(div);
-  });
+      return;
+    }
+
+    // Si existen múltiples coincidencias, se despliega la lista interactiva
+    clientes.forEach(c => {
+      const div = document.createElement('div');
+      div.className = 'result-item';
+      div.innerHTML = `<strong>${c.nombre}</strong> — 📞 ${c.telefono} ${c.email ? `(${c.email})` : ''}`;
+      div.onclick = () => {
+        cargarExpedienteCompleto(c.id);
+        contenedor.innerHTML = '';
+      };
+      contenedor.appendChild(div);
+    });
+  } catch (error) {
+    console.error('Error al realizar la búsqueda de cliente:', error);
+  }
 }
 
 // 2. Cargar expediente completo
@@ -161,7 +174,8 @@ async function cargarExpedienteCompleto(clienteId) {
   const data = await res.json();
   clienteDataGlobal = data;
 
-  document.getElementById('expediente-cliente').classList.remove('hidden');
+  const expedienteEl = document.getElementById('expediente-cliente');
+  expedienteEl.classList.remove('hidden');
   document.getElementById('exp-nombre').innerText = `👤 ${data.nombre}`;
   document.getElementById('exp-datos').innerHTML = `
     <p><strong>Teléfono:</strong> ${data.telefono}</p>
@@ -172,30 +186,32 @@ async function cargarExpedienteCompleto(clienteId) {
   const contVehiculos = document.getElementById('exp-vehiculos');
   contVehiculos.innerHTML = '';
 
-  if (data.vehiculos.length === 0) {
+  if (!data.vehiculos || data.vehiculos.length === 0) {
     contVehiculos.innerHTML = '<p style="color: var(--text-muted);">Sin vehículos registrados.</p>';
-    return;
+  } else {
+    data.vehiculos.forEach(v => {
+      const card = document.createElement('div');
+      card.className = 'vehicle-card';
+      card.innerHTML = `
+        <div class="vehicle-header">
+          <h4>🚘 ${v.marca} ${v.modelo} (${v.anio}) - Placas: ${v.placas}</h4>
+          <div>
+            <button class="btn btn-secondary btn-sm" onclick='abrirModalVehiculo(${JSON.stringify(v)})'>✏️ Editar Auto</button>
+            <button class="btn btn-sm" onclick="abrirModalServicio(${v.id})">➕ Nueva Orden</button>
+          </div>
+        </div>
+        <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 4px;">Kilometraje: ${v.kilometraje ? v.kilometraje.toLocaleString() : 0} km</p>
+        <div class="services-list">
+          <h5>Historial de Servicios:</h5>
+          ${renderizarServicios(v.servicios)}
+        </div>
+      `;
+      contVehiculos.appendChild(card);
+    });
   }
 
-  data.vehiculos.forEach(v => {
-    const card = document.createElement('div');
-    card.className = 'vehicle-card';
-    card.innerHTML = `
-      <div class="vehicle-header">
-        <h4>🚘 ${v.marca} ${v.modelo} (${v.anio}) - Placas: ${v.placas}</h4>
-        <div>
-          <button class="btn btn-secondary btn-sm" onclick='abrirModalVehiculo(${JSON.stringify(v)})'>✏️ Editar Auto</button>
-          <button class="btn btn-sm" onclick="abrirModalServicio(${v.id})">➕ Nueva Orden</button>
-        </div>
-      </div>
-      <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 4px;">Kilometraje: ${v.kilometraje.toLocaleString()} km</p>
-      <div class="services-list">
-        <h5>Historial de Servicios:</h5>
-        ${renderizarServicios(v.servicios)}
-      </div>
-    `;
-    contVehiculos.appendChild(card);
-  });
+  // Desplazamiento suave para enfocar el expediente en la pantalla
+  expedienteEl.scrollIntoView({ behavior: 'smooth' });
 }
 
 // 3. Renderizar tarjetas de servicios
@@ -221,13 +237,13 @@ function renderizarServicios(servicios) {
         </div>
         <p><strong>Motivo/Falla:</strong> ${s.diagnostico}</p>
         <p><strong>Trabajo:</strong> ${s.trabajo_realizado || 'En diagnóstico'}</p>
-        <p><strong>Desglose:</strong> Piezas: $${s.costo_piezas.toFixed(2)} | Mano de Obra: $${s.costo_mano_obra.toFixed(2)} ➔ <strong>Total: $${total}</strong></p>
+        <p><strong>Desglose:</strong> Piezas: $${Number(s.costo_piezas).toFixed(2)} | Mano de Obra: $${Number(s.costo_mano_obra).toFixed(2)} ➔ <strong>Total: $${total}</strong></p>
       </div>
     `;
   }).join('');
 }
 
-// 4. NUEVA FUNCIÓN GLOBAL: Filtrar y listar vehículos por estado del servicio
+// 4. Filtrar y listar vehículos por estado del servicio
 async function filtrarPorEstado(estado) {
   const contenedor = document.getElementById('contenedor-estado-servicios');
   contenedor.innerHTML = '';
@@ -258,7 +274,7 @@ async function filtrarPorEstado(estado) {
         <span class="badge badge-${estadoClass}">${item.estado}</span>
       </div>
       <p style="margin: 4px 0;"><strong>👤 Cliente:</strong> ${item.cliente_nombre} | 📞 <strong>Tel:</strong> ${item.cliente_telefono}</p>
-      <p style="margin: 4px 0;"><strong>📅 Fecha Ingreso:</strong> ${item.fecha} | <strong>KM:</strong> ${item.kilometraje.toLocaleString()} km</p>
+      <p style="margin: 4px 0;"><strong>📅 Fecha Ingreso:</strong> ${item.fecha} | <strong>KM:</strong> ${item.kilometraje ? item.kilometraje.toLocaleString() : 0} km</p>
       <div class="service-card" style="margin-top: 8px;">
         <p><strong>Diagnóstico / Falla:</strong> ${item.diagnostico}</p>
         <p><strong>Trabajo Realizado:</strong> ${item.trabajo_realizado || 'Pendiente de ejecución'}</p>
@@ -277,7 +293,8 @@ function imprimirNota(servicio) {
     return;
   }
 
-  const vehiculo = clienteDataGlobal.vehiculos.find(v => v.id === servicio.vehiculo_id) || {};
+  // Conversión explícita a Number para asegurar la búsqueda del vehículo
+  const vehiculo = (clienteDataGlobal.vehiculos || []).find(v => Number(v.id) === Number(servicio.vehiculo_id)) || {};
   const total = (Number(servicio.costo_piezas) + Number(servicio.costo_mano_obra)).toFixed(2);
 
   const ventanaImpresion = window.open('', '_blank', 'width=800,height=700');
@@ -346,11 +363,11 @@ function imprimirNota(servicio) {
         <tbody>
           <tr>
             <td>Refacciones y Consumibles</td>
-            <td style="text-align: right;">$${servicio.costo_piezas.toFixed(2)}</td>
+            <td style="text-align: right;">$${Number(servicio.costo_piezas).toFixed(2)}</td>
           </tr>
           <tr>
             <td>Mano de Obra Especializada</td>
-            <td style="text-align: right;">$${servicio.costo_mano_obra.toFixed(2)}</td>
+            <td style="text-align: right;">$${Number(servicio.costo_mano_obra).toFixed(2)}</td>
           </tr>
         </tbody>
       </table>
