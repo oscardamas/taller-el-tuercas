@@ -7,9 +7,9 @@ const PORT = process.env.PORT || 3000;
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Verificar si existe la variable DATABASE_URL y que no sea una plantilla genérica
+// Detectar DATABASE_URL aceptando prefijos postgres:// y postgresql://
 const rawDbUrl = process.env.DATABASE_URL;
-const usePostgres = rawDbUrl && rawDbUrl.startsWith('postgres://');
+const usePostgres = rawDbUrl && (rawDbUrl.startsWith('postgres://') || rawDbUrl.startsWith('postgresql://'));
 let queryDB;
 
 if (usePostgres) {
@@ -19,6 +19,7 @@ if (usePostgres) {
     ssl: { rejectUnauthorized: false }
   });
 
+  // Creación automática de tablas si no existen en PostgreSQL
   pool.query(`
     CREATE TABLE IF NOT EXISTS clientes (
       id SERIAL PRIMARY KEY,
@@ -48,7 +49,7 @@ if (usePostgres) {
       estado VARCHAR(50) DEFAULT 'Pendiente'
     );
   `).then(() => console.log('Modo Producción: Conectado exitosamente a PostgreSQL en Render.'))
-    .catch(err => console.error('Error al conectar con PostgreSQL:', err.message));
+    .catch(err => console.error('Error al inicializar tablas en PostgreSQL:', err.message));
 
   queryDB = async (text, params = []) => {
     let queryText = text;
@@ -59,7 +60,7 @@ if (usePostgres) {
     return res.rows;
   };
 } else {
-  // Modo de respaldo en SQLite para pruebas locales
+  // Modo de respaldo en SQLite para desarrollo local
   const sqlite3 = require('sqlite3').verbose();
   const db = new sqlite3.Database('taller.db', (err) => {
     if (err) console.error('Error al abrir SQLite local:', err.message);
