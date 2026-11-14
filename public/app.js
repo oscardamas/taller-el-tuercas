@@ -1,4 +1,4 @@
-// app.js - Gestión de interfaz, seguridad y órdenes de servicio
+// app.js - Gestión de interfaz, seguridad XSS/JWT y órdenes de servicio
 let clienteActualId = null;
 let clienteDataGlobal = null;
 let refaccionesTemporales = [];
@@ -7,8 +7,24 @@ let refaccionesTemporales = [];
 let token = localStorage.getItem('taller_token');
 let rolUsuario = localStorage.getItem('taller_rol');
 
+// Función de saneamiento para prevenir ataques XSS al mostrar textos en HTML
+function escapeHtml(text) {
+  if (text === null || text === undefined) return '';
+  return String(text)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
 // Función Wrapper para inyectar el Token en cada petición HTTP
 async function fetchSeguro(url, options = {}) {
+  if (!token) {
+    cerrarSesion();
+    throw new Error('Sin sesión activa');
+  }
+
   const headers = {
     'Content-Type': 'application/json',
     'Authorization': `Bearer ${token}`
@@ -30,7 +46,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // --- EVENTOS DE LOGIN Y SESIÓN ---
   document.getElementById('form-login').addEventListener('submit', async (e) => {
     e.preventDefault();
-    const username = document.getElementById('login-user').value;
+    const username = document.getElementById('login-user').value.trim();
     const password = document.getElementById('login-pass').value;
 
     try {
@@ -49,10 +65,11 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('form-login').reset();
         verificarSesionActiva();
       } else {
-        alert(data.error);
+        alert(data.error || 'Error al iniciar sesión.');
       }
     } catch (error) {
       console.error('Error en login:', error);
+      alert('No se pudo conectar con el servidor.');
     }
   });
 
@@ -62,7 +79,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // --- EVENTOS DE ADMINISTRACIÓN DE USUARIOS ---
   document.getElementById('form-nuevo-usuario').addEventListener('submit', async (e) => {
     e.preventDefault();
-    const user = document.getElementById('nuevo-user').value;
+    const user = document.getElementById('nuevo-user').value.trim();
     const pass = document.getElementById('nuevo-pass').value;
     const rol = document.getElementById('nuevo-rol').value;
 
@@ -71,14 +88,14 @@ document.addEventListener('DOMContentLoaded', () => {
         method: 'POST',
         body: JSON.stringify({ username: user, password: pass, rol: rol })
       });
+      const data = await res.json();
       if (res.ok) {
         document.getElementById('form-nuevo-usuario').reset();
         cargarUsuarios();
       } else {
-        const err = await res.json();
-        alert(err.error);
+        alert(data.error || 'Error al crear usuario.');
       }
-    } catch(err) {
+    } catch (err) {
       console.error(err);
     }
   });
@@ -91,7 +108,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
   document.getElementById('btn-agregar-refaccion').addEventListener('click', agregarRefaccionDinamica);
   document.getElementById('ref-precio').addEventListener('keyup', (e) => {
-    if (e.key === 'Enter') agregarRefaccionDinamica();
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      agregarRefaccionDinamica();
+    }
   });
 
   document.getElementById('srv-costo-obra').addEventListener('input', calcularTotalesFormulario);
@@ -99,10 +119,10 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('form-cliente').addEventListener('submit', async (e) => {
     e.preventDefault();
     const data = {
-      nombre: document.getElementById('cli-nombre').value,
-      telefono: document.getElementById('cli-telefono').value,
-      email: document.getElementById('cli-email').value,
-      notas: document.getElementById('cli-notas').value
+      nombre: document.getElementById('cli-nombre').value.trim(),
+      telefono: document.getElementById('cli-telefono').value.trim(),
+      email: document.getElementById('cli-email').value.trim(),
+      notas: document.getElementById('cli-notas').value.trim()
     };
     try {
       const res = await fetchSeguro('/api/clientes', { method: 'POST', body: JSON.stringify(data) });
@@ -111,7 +131,7 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('form-cliente').reset();
         cargarExpedienteCompleto(result.id);
       } else {
-        alert(result.error);
+        alert(result.error || 'Error al registrar cliente.');
       }
     } catch (err) { console.error(err); }
   });
@@ -120,15 +140,20 @@ document.addEventListener('DOMContentLoaded', () => {
     e.preventDefault();
     const id = document.getElementById('edit-cli-id').value;
     const data = {
-      nombre: document.getElementById('edit-cli-nombre').value,
-      telefono: document.getElementById('edit-cli-telefono').value,
-      email: document.getElementById('edit-cli-email').value,
-      notas: document.getElementById('edit-cli-notas').value
+      nombre: document.getElementById('edit-cli-nombre').value.trim(),
+      telefono: document.getElementById('edit-cli-telefono').value.trim(),
+      email: document.getElementById('edit-cli-email').value.trim(),
+      notas: document.getElementById('edit-cli-notas').value.trim()
     };
     try {
-      await fetchSeguro(`/api/clientes/${id}`, { method: 'PUT', body: JSON.stringify(data) });
-      cerrarModales();
-      cargarExpedienteCompleto(id);
+      const res = await fetchSeguro(`/api/clientes/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+      const result = await res.json();
+      if (res.ok) {
+        cerrarModales();
+        cargarExpedienteCompleto(id);
+      } else {
+        alert(result.error || 'Error al actualizar cliente.');
+      }
     } catch (err) { console.error(err); }
   });
 
@@ -137,11 +162,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const vehId = document.getElementById('veh-id').value;
     const data = {
       cliente_id: clienteActualId,
-      marca: document.getElementById('veh-marca').value,
-      modelo: document.getElementById('veh-modelo').value,
-      anio: parseInt(document.getElementById('veh-anio').value),
-      placas: document.getElementById('veh-placas').value,
-      kilometraje: parseInt(document.getElementById('veh-km').value) || 0
+      marca: document.getElementById('veh-marca').value.trim(),
+      modelo: document.getElementById('veh-modelo').value.trim(),
+      anio: parseInt(document.getElementById('veh-anio').value, 10),
+      placas: document.getElementById('veh-placas').value.trim(),
+      kilometraje: parseInt(document.getElementById('veh-km').value, 10) || 0
     };
 
     const method = vehId ? 'PUT' : 'POST';
@@ -149,12 +174,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
     try {
       const res = await fetchSeguro(url, { method, body: JSON.stringify(data) });
+      const result = await res.json();
       if (res.ok) {
         cerrarModales();
         cargarExpedienteCompleto(clienteActualId);
       } else {
-        const err = await res.json();
-        alert(err.error);
+        alert(result.error || 'Error al guardar vehículo.');
       }
     } catch (err) { console.error(err); }
   });
@@ -165,8 +190,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const data = {
       vehiculo_id: document.getElementById('srv-vehiculo-id').value,
       fecha: document.getElementById('srv-fecha').value,
-      diagnostico: document.getElementById('srv-diagnostico').value,
-      trabajo_realizado: document.getElementById('srv-trabajo').value,
+      diagnostico: document.getElementById('srv-diagnostico').value.trim(),
+      trabajo_realizado: document.getElementById('srv-trabajo').value.trim(),
       refacciones: JSON.stringify(refaccionesTemporales),
       costo_piezas: parseFloat(document.getElementById('srv-costo-piezas').value) || 0,
       costo_mano_obra: parseFloat(document.getElementById('srv-costo-obra').value) || 0,
@@ -178,9 +203,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
     try {
       const res = await fetchSeguro(url, { method, body: JSON.stringify(data) });
+      const result = await res.json();
       if (res.ok) {
         cerrarModales();
         cargarExpedienteCompleto(clienteActualId);
+      } else {
+        alert(result.error || 'Error al guardar orden.');
       }
     } catch (err) { console.error(err); }
   });
@@ -217,8 +245,11 @@ function verificarSesionActiva() {
 function cerrarSesion() {
   token = null;
   rolUsuario = null;
+  clienteActualId = null;
+  clienteDataGlobal = null;
   localStorage.removeItem('taller_token');
   localStorage.removeItem('taller_rol');
+  document.getElementById('expediente-cliente').classList.add('hidden');
   verificarSesionActiva();
 }
 
@@ -235,24 +266,24 @@ async function cargarUsuarios() {
     const usuarios = await res.json();
     contenedor.innerHTML = usuarios.map(u => `
       <div class="result-item" style="display:flex; justify-content:space-between; align-items:center;">
-        <span>👤 <strong>${u.username}</strong> <small style="color: var(--text-muted);">(${u.rol})</small></span>
-        <button class="ref-item-btn-del" onclick="eliminarUsuario(${u.id})">Borrar</button>
+        <span>👤 <strong>${escapeHtml(u.username)}</strong> <small style="color: var(--text-muted);">(${escapeHtml(u.rol)})</small></span>
+        <button class="ref-item-btn-del" onclick="eliminarUsuario(${Number(u.id)})">Borrar</button>
       </div>
     `).join('');
   } catch (e) {
-    contenedor.innerHTML = '<p style="color: red;">Error al cargar la lista.</p>';
+    contenedor.innerHTML = '<p style="color: #ef4444;">Error al cargar la lista.</p>';
   }
 }
 
 async function eliminarUsuario(id) {
   if (confirm('¿Seguro que deseas eliminar este usuario del sistema?')) {
     try {
-      const res = await fetchSeguro(`/api/usuarios/${id}`, { method: 'DELETE' });
+      const res = await fetchSeguro(`/api/usuarios/${Number(id)}`, { method: 'DELETE' });
       if (res.ok) {
         cargarUsuarios();
       } else {
         const err = await res.json();
-        alert(err.error);
+        alert(err.error || 'No se pudo eliminar el usuario.');
       }
     } catch (e) { console.error(e); }
   }
@@ -263,7 +294,7 @@ function agregarRefaccionDinamica() {
   const nombreInput = document.getElementById('ref-nombre');
   const precioInput = document.getElementById('ref-precio');
   const descripcion = nombreInput.value.trim();
-  const precio = parseFloat(precioInput.value) || 0;
+  const precio = Math.max(0, parseFloat(precioInput.value) || 0);
 
   if (!descripcion) {
     alert('Ingresa una descripción o nombre para la refacción.');
@@ -293,9 +324,9 @@ function renderizarRefaccionesFormulario() {
     const div = document.createElement('div');
     div.className = 'ref-item';
     div.innerHTML = `
-      <span>🔧 ${item.descripcion}</span>
+      <span>🔧 ${escapeHtml(item.descripcion)}</span>
       <div>
-        <strong>$${item.precio.toFixed(2)}</strong>
+        <strong>$${Number(item.precio).toFixed(2)}</strong>
         <button type="button" class="ref-item-btn-del" onclick="eliminarRefaccionDinamica(${index})">❌</button>
       </div>
     `;
@@ -307,7 +338,36 @@ function renderizarRefaccionesFormulario() {
 }
 
 function calcularTotalesFormulario() {
-  // Dispara el evento visualmente
+  // Reservado para cálculos reactivos adicionales
+}
+
+// --- FUNCIONES AUXILIARES SEGURAS POR ID ---
+function editarVehiculoPorId(vehiculoId) {
+  if (!clienteDataGlobal || !clienteDataGlobal.vehiculos) return;
+  const vehiculo = clienteDataGlobal.vehiculos.find(v => Number(v.id) === Number(vehiculoId));
+  if (vehiculo) abrirModalVehiculo(vehiculo);
+}
+
+function editarServicioPorId(servicioId) {
+  if (!clienteDataGlobal || !clienteDataGlobal.vehiculos) return;
+  for (const v of clienteDataGlobal.vehiculos) {
+    const servicio = (v.servicios || []).find(s => Number(s.id) === Number(servicioId));
+    if (servicio) {
+      abrirModalServicio(null, servicio);
+      return;
+    }
+  }
+}
+
+function imprimirNotaPorId(servicioId) {
+  if (!clienteDataGlobal || !clienteDataGlobal.vehiculos) return;
+  for (const v of clienteDataGlobal.vehiculos) {
+    const servicio = (v.servicios || []).find(s => Number(s.id) === Number(servicioId));
+    if (servicio) {
+      imprimirNota(servicio);
+      return;
+    }
+  }
 }
 
 // --- FUNCIONES CORE DEL TALLER ---
@@ -336,7 +396,7 @@ async function buscarClientePorTelefono() {
     clientes.forEach(c => {
       const div = document.createElement('div');
       div.className = 'result-item';
-      div.innerHTML = `<strong>${c.nombre}</strong> — 📞 ${c.telefono} ${c.email ? `(${c.email})` : ''}`;
+      div.innerHTML = `<strong>${escapeHtml(c.nombre)}</strong> — 📞 ${escapeHtml(c.telefono)} ${c.email ? `(${escapeHtml(c.email)})` : ''}`;
       div.onclick = () => {
         cargarExpedienteCompleto(c.id);
         contenedor.innerHTML = '';
@@ -349,17 +409,21 @@ async function buscarClientePorTelefono() {
 async function cargarExpedienteCompleto(clienteId) {
   clienteActualId = clienteId;
   try {
-    const res = await fetchSeguro(`/api/clientes/${clienteId}/completo`);
+    const res = await fetchSeguro(`/api/clientes/${Number(clienteId)}/completo`);
     const data = await res.json();
+    if (!res.ok) {
+      alert(data.error || 'No se pudo cargar el expediente.');
+      return;
+    }
     clienteDataGlobal = data;
 
     const expedienteEl = document.getElementById('expediente-cliente');
     expedienteEl.classList.remove('hidden');
     document.getElementById('exp-nombre').innerText = `👤 ${data.nombre}`;
     document.getElementById('exp-datos').innerHTML = `
-      <p><strong>Teléfono:</strong> ${data.telefono}</p>
-      <p><strong>Email:</strong> ${data.email || 'No registrado'}</p>
-      <p><strong>Notas:</strong> ${data.notas || 'Sin observaciones'}</p>
+      <p><strong>Teléfono:</strong> ${escapeHtml(data.telefono)}</p>
+      <p><strong>Email:</strong> ${escapeHtml(data.email || 'No registrado')}</p>
+      <p><strong>Notas:</strong> ${escapeHtml(data.notas || 'Sin observaciones')}</p>
     `;
 
     const contVehiculos = document.getElementById('exp-vehiculos');
@@ -373,13 +437,13 @@ async function cargarExpedienteCompleto(clienteId) {
         card.className = 'vehicle-card';
         card.innerHTML = `
           <div class="vehicle-header">
-            <h4>🚘 ${v.marca} ${v.modelo} (${v.anio}) - Placas: ${v.placas}</h4>
+            <h4>🚘 ${escapeHtml(v.marca)} ${escapeHtml(v.modelo)} (${Number(v.anio)}) - Placas: ${escapeHtml(v.placas)}</h4>
             <div>
-              <button class="btn btn-secondary btn-sm" onclick='abrirModalVehiculo(${JSON.stringify(v)})'>✏️ Editar Auto</button>
-              <button class="btn btn-sm" onclick="abrirModalServicio(${v.id})">➕ Nueva Orden</button>
+              <button class="btn btn-secondary btn-sm" onclick="editarVehiculoPorId(${Number(v.id)})">✏️ Editar Auto</button>
+              <button class="btn btn-sm" onclick="abrirModalServicio(${Number(v.id)})">➕ Nueva Orden</button>
             </div>
           </div>
-          <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 4px;">Kilometraje: ${v.kilometraje ? v.kilometraje.toLocaleString() : 0} km</p>
+          <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 4px;">Kilometraje: ${v.kilometraje ? Number(v.kilometraje).toLocaleString() : 0} km</p>
           <div class="services-list">
             <h5>Historial de Servicios:</h5>
             ${renderizarServicios(v.servicios)}
@@ -399,21 +463,21 @@ function renderizarServicios(servicios) {
 
   return servicios.map(s => {
     const total = (Number(s.costo_piezas) + Number(s.costo_mano_obra)).toFixed(2);
-    const estadoClass = s.estado.replace(/\s+/g, '-');
-    const servicioJSON = JSON.stringify(s).replace(/'/g, "&apos;").replace(/"/g, "&quot;");
+    const estadoClass = escapeHtml(s.estado).replace(/\s+/g, '-');
+    const srvId = Number(s.id);
 
     return `
       <div class="service-card">
         <div style="display: flex; justify-content: space-between; align-items: center;">
-          <strong>📅 Fecha: ${s.fecha}</strong>
+          <strong>📅 Fecha: ${escapeHtml(s.fecha)}</strong>
           <div>
-            <span class="badge badge-${estadoClass}">${s.estado}</span>
-            <button class="btn btn-secondary btn-sm" onclick='abrirModalServicio(null, ${servicioJSON})'>✏️ Editar</button>
-            <button class="btn btn-sm" style="background-color: #10b981; color: #fff;" onclick='imprimirNota(${servicioJSON})'>📄 PDF</button>
+            <span class="badge badge-${estadoClass}">${escapeHtml(s.estado)}</span>
+            <button class="btn btn-secondary btn-sm" onclick="editarServicioPorId(${srvId})">✏️ Editar</button>
+            <button class="btn btn-sm" style="background-color: #10b981; color: #fff;" onclick="imprimirNotaPorId(${srvId})">📄 PDF</button>
           </div>
         </div>
-        <p><strong>Motivo/Falla:</strong> ${s.diagnostico}</p>
-        <p><strong>Observaciones:</strong> ${s.trabajo_realizado || 'Sin comentarios registrados'}</p>
+        <p><strong>Motivo/Falla:</strong> ${escapeHtml(s.diagnostico)}</p>
+        <p><strong>Observaciones:</strong> ${escapeHtml(s.trabajo_realizado || 'Sin comentarios registrados')}</p>
         <p><strong>Desglose:</strong> Piezas: $${Number(s.costo_piezas).toFixed(2)} | Mano de Obra: $${Number(s.costo_mano_obra).toFixed(2)} ➔ <strong>Total: $${total}</strong></p>
       </div>
     `;
@@ -434,30 +498,30 @@ async function filtrarPorEstado(estado) {
     const lista = await res.json();
 
     if (lista.length === 0) {
-      contenedor.innerHTML = `<p style="color: var(--text-muted); font-size: 0.9rem;">No hay órdenes registradas con el estado "${estado}".</p>`;
+      contenedor.innerHTML = `<p style="color: var(--text-muted); font-size: 0.9rem;">No hay órdenes registradas con el estado "${escapeHtml(estado)}".</p>`;
       return;
     }
 
     lista.forEach(item => {
       const total = (Number(item.costo_piezas) + Number(item.costo_mano_obra)).toFixed(2);
-      const estadoClass = item.estado.replace(/\s+/g, '-');
+      const estadoClass = escapeHtml(item.estado).replace(/\s+/g, '-');
 
       const card = document.createElement('div');
       card.className = 'vehicle-card';
       card.style.marginBottom = '12px';
       card.innerHTML = `
         <div class="vehicle-header">
-          <h4>🚘 ${item.marca} ${item.modelo} (${item.anio}) — Placas: ${item.placas}</h4>
-          <span class="badge badge-${estadoClass}">${item.estado}</span>
+          <h4>🚘 ${escapeHtml(item.marca)} ${escapeHtml(item.modelo)} (${Number(item.anio)}) — Placas: ${escapeHtml(item.placas)}</h4>
+          <span class="badge badge-${estadoClass}">${escapeHtml(item.estado)}</span>
         </div>
-        <p style="margin: 4px 0;"><strong>👤 Cliente:</strong> ${item.cliente_nombre} | 📞 <strong>Tel:</strong> ${item.cliente_telefono}</p>
-        <p style="margin: 4px 0;"><strong>📅 Fecha Ingreso:</strong> ${item.fecha} | <strong>KM:</strong> ${item.kilometraje ? item.kilometraje.toLocaleString() : 0} km</p>
+        <p style="margin: 4px 0;"><strong>👤 Cliente:</strong> ${escapeHtml(item.cliente_nombre)} | 📞 <strong>Tel:</strong> ${escapeHtml(item.cliente_telefono)}</p>
+        <p style="margin: 4px 0;"><strong>📅 Fecha Ingreso:</strong> ${escapeHtml(item.fecha)} | <strong>KM:</strong> ${item.kilometraje ? Number(item.kilometraje).toLocaleString() : 0} km</p>
         <div class="service-card" style="margin-top: 8px;">
-          <p><strong>Diagnóstico / Falla:</strong> ${item.diagnostico}</p>
-          <p><strong>Observaciones:</strong> ${item.trabajo_realizado || 'Pendiente'}</p>
+          <p><strong>Diagnóstico / Falla:</strong> ${escapeHtml(item.diagnostico)}</p>
+          <p><strong>Observaciones:</strong> ${escapeHtml(item.trabajo_realizado || 'Pendiente')}</p>
           <p><strong>Costo Estimado/Total:</strong> $${total} MXN</p>
         </div>
-        <button class="btn btn-secondary btn-sm" style="margin-top: 10px;" onclick="cargarExpedienteCompleto(${item.cliente_id})">Ver expediente completo de ${item.cliente_nombre}</button>
+        <button class="btn btn-secondary btn-sm" style="margin-top: 10px;" onclick="cargarExpedienteCompleto(${Number(item.cliente_id)})">Ver expediente completo de ${escapeHtml(item.cliente_nombre)}</button>
       `;
       contenedor.appendChild(card);
     });
@@ -483,7 +547,7 @@ function imprimirNota(servicio) {
   let filasTabla = '';
   if (listaRefacciones && listaRefacciones.length > 0) {
     listaRefacciones.forEach(item => {
-      filasTabla += `<tr><td>🔧 Refacción: ${item.descripcion}</td><td style="text-align: right;">$${Number(item.precio).toFixed(2)}</td></tr>`;
+      filasTabla += `<tr><td>🔧 Refacción: ${escapeHtml(item.descripcion)}</td><td style="text-align: right;">$${Number(item.precio).toFixed(2)}</td></tr>`;
     });
   } else if (Number(servicio.costo_piezas) > 0) {
     filasTabla += `<tr><td>🔧 Refacciones y Consumibles (General)</td><td style="text-align: right;">$${Number(servicio.costo_piezas).toFixed(2)}</td></tr>`;
@@ -497,7 +561,7 @@ function imprimirNota(servicio) {
     <html lang="es">
     <head>
       <meta charset="UTF-8">
-      <title>Nota_de_Servicio_${servicio.id}_${clienteDataGlobal.nombre.replace(/\s+/g, '_')}</title>
+      <title>Nota_de_Servicio_${Number(servicio.id)}_${escapeHtml(clienteDataGlobal.nombre).replace(/\s+/g, '_')}</title>
       <style>
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 30px; color: #1e293b; line-height: 1.5; }
         .header { text-align: center; border-bottom: 2px solid #ff4500; padding-bottom: 12px; margin-bottom: 20px; }
@@ -521,27 +585,27 @@ function imprimirNota(servicio) {
       <div class="header">
         <h1>⚙️ TU TALLER MECANICO ⚙️</h1>
         <p>SERVICIO MECANICO AUTOMOTRIZ</p>
-        <div class="folio">Orden N°: #${servicio.id} | Fecha: ${servicio.fecha}</div>
+        <div class="folio">Orden N°: #${Number(servicio.id)} | Fecha: ${escapeHtml(servicio.fecha)}</div>
       </div>
       <div class="grid">
         <div class="box">
           <div class="box-title">👤 Datos del Cliente</div>
-          <p><strong>Nombre:</strong> ${clienteDataGlobal.nombre}</p>
-          <p><strong>Teléfono / WhatsApp:</strong> ${clienteDataGlobal.telefono}</p>
-          <p><strong>Email:</strong> ${clienteDataGlobal.email || 'No registrado'}</p>
+          <p><strong>Nombre:</strong> ${escapeHtml(clienteDataGlobal.nombre)}</p>
+          <p><strong>Teléfono / WhatsApp:</strong> ${escapeHtml(clienteDataGlobal.telefono)}</p>
+          <p><strong>Email:</strong> ${escapeHtml(clienteDataGlobal.email || 'No registrado')}</p>
         </div>
         <div class="box">
           <div class="box-title">🚗 Datos del Vehículo</div>
-          <p><strong>Vehículo:</strong> ${vehiculo.marca || ''} ${vehiculo.modelo || ''} (${vehiculo.anio || ''})</p>
-          <p><strong>Placas / Matrícula:</strong> ${vehiculo.placas || 'N/A'}</p>
-          <p><strong>Kilometraje:</strong> ${vehiculo.kilometraje ? vehiculo.kilometraje.toLocaleString() + ' km' : 'N/A'}</p>
+          <p><strong>Vehículo:</strong> ${escapeHtml(vehiculo.marca || '')} ${escapeHtml(vehiculo.modelo || '')} (${vehiculo.anio ? Number(vehiculo.anio) : ''})</p>
+          <p><strong>Placas / Matrícula:</strong> ${escapeHtml(vehiculo.placas || 'N/A')}</p>
+          <p><strong>Kilometraje:</strong> ${vehiculo.kilometraje ? Number(vehiculo.kilometraje).toLocaleString() + ' km' : 'N/A'}</p>
         </div>
       </div>
       <div class="service-details">
         <div class="box-title">📋 Detalle del Servicio</div>
-        <p><strong>Motivo de Ingreso / Falla Reportada:</strong> ${servicio.diagnostico}</p>
-        <p><strong>Comentarios Generales:</strong> ${servicio.trabajo_realizado || 'Sin observaciones registradas'}</p>
-        <p><strong>Estado Actual:</strong> <strong>${servicio.estado}</strong></p>
+        <p><strong>Motivo de Ingreso / Falla Reportada:</strong> ${escapeHtml(servicio.diagnostico)}</p>
+        <p><strong>Comentarios Generales:</strong> ${escapeHtml(servicio.trabajo_realizado || 'Sin observaciones registradas')}</p>
+        <p><strong>Estado Actual:</strong> <strong>${escapeHtml(servicio.estado)}</strong></p>
       </div>
       <table>
         <thead>

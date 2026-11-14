@@ -22,13 +22,13 @@ body {
   color: var(--text-main);
   margin: 0;
   padding: 24px;
-  font-size: 1.02rem; /* Zoom tipográfico general */
+  font-size: 1.02rem;
 }
 
 /* ANCHO AMPLIADO Y FLUIDO */
 .container { 
-  max-width: 1440px; /* Expandido de 1180px a 1440px para cubrir bordes vacíos */
-  width: 95%;        /* Adaptabilidad en diferentes monitores */
+  max-width: 1440px;
+  width: 95%;
   margin: 0 auto; 
 }
 
@@ -170,7 +170,7 @@ input:focus, textarea:focus, select:focus {
 
 hr { border: 0; border-top: 1px solid var(--border); margin: 24px 0; }
 
-/* MODALES AMPLIAOS */
+/* MODALES AMPLIADOS */
 .modal { 
   position: fixed; 
   top: 0; 
@@ -283,8 +283,8 @@ footer {
 #login-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(17, 20, 24, 0.75); /* Fondo oscuro translúcido */
-  backdrop-filter: blur(12px); /* Difuminado o Glassmorphism */
+  background: rgba(17, 20, 24, 0.75);
+  backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   display: flex;
   align-items: center;

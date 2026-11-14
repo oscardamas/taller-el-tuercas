@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Taller El Tuercas - Gestión Automotriz</title>
+  <title>Tu Taller Mecánico - Gestión Automotriz</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -14,9 +14,9 @@
       <h2>⚙️ Acceso al Sistema</h2>
       <form id="form-login">
         <label style="text-align: left;">Usuario</label>
-        <input type="text" id="login-user" required placeholder="Ingresa tu usuario" autocomplete="off">
+        <input type="text" id="login-user" required maxlength="50" placeholder="Ingresa tu usuario" autocomplete="username">
         <label style="text-align: left;">Contraseña</label>
-        <input type="password" id="login-pass" required placeholder="••••••••" style="margin-bottom: 20px;">
+        <input type="password" id="login-pass" required maxlength="100" placeholder="••••••••" autocomplete="current-password" style="margin-bottom: 20px;">
         <button type="submit" class="btn" style="width: 100%;">Iniciar Sesión</button>
       </form>
     </div>
@@ -42,7 +42,7 @@
     </nav>
 
     <header>
-      <h1>⚙️ TALLER EL TUERCAS ⚙️</h1>
+      <h1>⚙️ TU TALLER MECANICO ⚙️</h1>
       <p class="subtitle">SISTEMA DE ADMINISTRACIÓN AUTOMOTRIZ</p>
     </header>
 
@@ -50,7 +50,7 @@
     <section class="search-box card">
       <h2>🔍 Buscar Cliente por Teléfono</h2>
       <div class="search-group">
-        <input type="text" id="input-buscar-telefono" placeholder="Ingresa número de teléfono (ej. 9841234567)">
+        <input type="text" id="input-buscar-telefono" maxlength="30" placeholder="Ingresa número de teléfono (ej. 9841234567)">
         <button id="btn-buscar" class="btn">Buscar</button>
       </div>
       <div id="resultados-busqueda" class="results-list"></div>
@@ -77,16 +77,16 @@
         <h2>➕ Registrar Nuevo Cliente</h2>
         <form id="form-cliente">
           <label>Nombre Completo *</label>
-          <input type="text" id="cli-nombre" required placeholder="Juan Pérez">
+          <input type="text" id="cli-nombre" required maxlength="150" placeholder="Juan Pérez">
           
           <label>Teléfono / WhatsApp *</label>
-          <input type="text" id="cli-telefono" required placeholder="9841234567">
+          <input type="text" id="cli-telefono" required maxlength="30" placeholder="9841234567">
           
           <label>Correo Electrónico</label>
-          <input type="email" id="cli-email" placeholder="cliente@correo.com">
+          <input type="email" id="cli-email" maxlength="150" placeholder="cliente@correo.com">
           
           <label>Notas Generales</label>
-          <textarea id="cli-notas" rows="2" placeholder="Preferencias o historial del cliente..."></textarea>
+          <textarea id="cli-notas" rows="2" maxlength="500" placeholder="Preferencias o historial del cliente..."></textarea>
           
           <button type="submit" class="btn">Guardar Cliente</button>
         </form>
@@ -125,8 +125,8 @@
       <h4>Crear Nuevo Usuario</h4>
       <form id="form-nuevo-usuario">
         <div style="display: flex; gap: 10px;">
-          <input type="text" id="nuevo-user" placeholder="Nombre de usuario" required>
-          <input type="password" id="nuevo-pass" placeholder="Contraseña" required>
+          <input type="text" id="nuevo-user" placeholder="Nombre de usuario" required minlength="3" maxlength="50">
+          <input type="password" id="nuevo-pass" placeholder="Contraseña (mín. 6)" required minlength="6" maxlength="100">
           <select id="nuevo-rol">
             <option value="empleado">Empleado</option>
             <option value="admin">Administrador</option>
@@ -147,13 +147,13 @@
       <form id="form-edit-cliente">
         <input type="hidden" id="edit-cli-id">
         <label>Nombre Completo</label>
-        <input type="text" id="edit-cli-nombre" required>
+        <input type="text" id="edit-cli-nombre" required maxlength="150">
         <label>Teléfono / WhatsApp</label>
-        <input type="text" id="edit-cli-telefono" required>
+        <input type="text" id="edit-cli-telefono" required maxlength="30">
         <label>Correo Electrónico</label>
-        <input type="email" id="edit-cli-email">
+        <input type="email" id="edit-cli-email" maxlength="150">
         <label>Notas Generales</label>
-        <textarea id="edit-cli-notas" rows="2"></textarea>
+        <textarea id="edit-cli-notas" rows="2" maxlength="500"></textarea>
         <div class="modal-actions">
           <button type="submit" class="btn">Guardar Cambios</button>
           <button type="button" class="btn btn-secondary" onclick="cerrarModales()">Cancelar</button>
@@ -169,15 +169,15 @@
       <form id="form-vehiculo">
         <input type="hidden" id="veh-id">
         <label>Marca *</label>
-        <input type="text" id="veh-marca" required>
+        <input type="text" id="veh-marca" required maxlength="60">
         <label>Modelo *</label>
-        <input type="text" id="veh-modelo" required>
+        <input type="text" id="veh-modelo" required maxlength="60">
         <label>Año *</label>
-        <input type="number" id="veh-anio" required>
+        <input type="number" id="veh-anio" required min="1900" max="2100">
         <label>Placas / Matrícula *</label>
-        <input type="text" id="veh-placas" required>
+        <input type="text" id="veh-placas" required maxlength="25">
         <label>Kilometraje Actual</label>
-        <input type="number" id="veh-km">
+        <input type="number" id="veh-km" min="0">
         <div class="modal-actions">
           <button type="submit" class="btn">Guardar Vehículo</button>
           <button type="button" class="btn btn-secondary" onclick="cerrarModales()">Cancelar</button>
@@ -198,16 +198,16 @@
         <input type="date" id="srv-fecha">
         
         <label>Motivo de Ingreso / Falla Reportada *</label>
-        <textarea id="srv-diagnostico" rows="2" required placeholder="Describe el fallo o motivo de servicio..."></textarea>
+        <textarea id="srv-diagnostico" rows="2" required maxlength="1000" placeholder="Describe el fallo o motivo de servicio..."></textarea>
         
         <label>Comentarios Generales y Observaciones del Trabajo</label>
-        <textarea id="srv-trabajo" rows="2" placeholder="Observaciones adicionales, estado del vehículo, etc."></textarea>
+        <textarea id="srv-trabajo" rows="2" maxlength="1000" placeholder="Observaciones adicionales, estado del vehículo, etc."></textarea>
         
         <!-- SECCIÓN DINÁMICA: Añadir Refacciones -->
         <label style="color: var(--accent); margin-top: 15px;">🛠️ Refacciones / Piezas Utilizadas</label>
         <div style="display: flex; gap: 8px; margin-bottom: 8px;">
-          <input type="text" id="ref-nombre" placeholder="Nombre/Descripción de la pieza (ej. Aceite 5W30)" style="flex: 2;">
-          <input type="number" step="0.01" id="ref-precio" placeholder="Precio ($)" style="flex: 1;">
+          <input type="text" id="ref-nombre" maxlength="120" placeholder="Nombre/Descripción de la pieza (ej. Aceite 5W30)" style="flex: 2;">
+          <input type="number" step="0.01" min="0" id="ref-precio" placeholder="Precio ($)" style="flex: 1;">
           <button type="button" id="btn-agregar-refaccion" class="btn btn-sm" style="background-color: #3b82f6;">➕ Agregar</button>
         </div>
         
@@ -216,11 +216,11 @@
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
           <div>
             <label>Subtotal Refacciones ($)</label>
-            <input type="number" step="0.01" id="srv-costo-piezas" value="0" readonly style="background-color: #0f1319; color: var(--accent); font-weight: bold;">
+            <input type="number" step="0.01" min="0" id="srv-costo-piezas" value="0" readonly style="background-color: #0f1319; color: var(--accent); font-weight: bold;">
           </div>
           <div>
             <label>Mano de Obra ($)</label>
-            <input type="number" step="0.01" id="srv-costo-obra" value="0">
+            <input type="number" step="0.01" min="0" id="srv-costo-obra" value="0">
           </div>
         </div>
 
