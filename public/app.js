@@ -1,7 +1,12 @@
-// app.js - Gestión de interfaz, seguridad XSS/JWT, auditoría y órdenes de servicio
+// app.js - Gestión de interfaz, seguridad XSS/JWT, auditoría y alertas de mantenimiento
 let clienteActualId = null;
 let clienteDataGlobal = null;
 let refaccionesTemporales = [];
+let alertasMantenimientoGlobal = [];
+
+// --- PARÁMETROS AJUSTABLES DE RECORDATORIOS ---
+const CODIGO_PAIS_WHATSAPP = '52'; // Código telefónico de México para números de 10 dígitos
+const NOMBRE_TALLER = 'Tu Taller Mecánico';
 
 // --- SISTEMA DE LOGIN Y SEGURIDAD ---
 let token = localStorage.getItem('taller_token');
@@ -151,6 +156,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (res.ok) {
         cerrarModales();
         cargarExpedienteCompleto(id);
+        cargarAlertasMantenimiento();
       } else {
         alert(result.error || 'Error al actualizar cliente.');
       }
@@ -178,6 +184,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (res.ok) {
         cerrarModales();
         cargarExpedienteCompleto(clienteActualId);
+        cargarAlertasMantenimiento();
       } else {
         alert(result.error || 'Error al guardar vehículo.');
       }
@@ -195,7 +202,10 @@ document.addEventListener('DOMContentLoaded', () => {
       refacciones: JSON.stringify(refaccionesTemporales),
       costo_piezas: parseFloat(document.getElementById('srv-costo-piezas').value) || 0,
       costo_mano_obra: parseFloat(document.getElementById('srv-costo-obra').value) || 0,
-      estado: document.getElementById('srv-estado').value
+      estado: document.getElementById('srv-estado').value,
+      proximo_servicio_fecha: document.getElementById('srv-proximo-fecha').value,
+      proximo_servicio_km: parseInt(document.getElementById('srv-proximo-km').value, 10) || 0,
+      proximo_motivo: document.getElementById('srv-proximo-motivo').value.trim()
     };
 
     const method = srvId ? 'PUT' : 'POST';
@@ -207,6 +217,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (res.ok) {
         cerrarModales();
         cargarExpedienteCompleto(clienteActualId);
+        cargarAlertasMantenimiento();
       } else {
         alert(result.error || 'Error al guardar orden.');
       }
@@ -236,6 +247,8 @@ function verificarSesionActiva() {
     } else {
       document.getElementById('btn-admin-usuarios').classList.add('hidden');
     }
+    // Cargar automáticamente las alertas de mantenimiento al entrar
+    cargarAlertasMantenimiento();
   } else {
     document.getElementById('login-overlay').classList.remove('hidden');
     document.getElementById('main-container').style.display = 'none';
@@ -286,6 +299,131 @@ async function eliminarUsuario(id) {
         alert(err.error || 'No se pudo eliminar el usuario.');
       }
     } catch (e) { console.error(e); }
+  }
+}
+
+// --- SISTEMA DE ALERTAS Y RECORDATORIOS DE MANTENIMIENTO ---
+function establecerFechaProxima(meses) {
+  const fechaBaseInput = document.getElementById('srv-fecha').value;
+  const fechaBase = fechaBaseInput ? new Date(fechaBaseInput + 'T12:00:00') : new Date();
+  fechaBase.setMonth(fechaBase.getMonth() + meses);
+  document.getElementById('srv-proximo-fecha').value = fechaBase.toISOString().split('T')[0];
+}
+
+async function cargarAlertasMantenimiento() {
+  const contenedor = document.getElementById('contenedor-alertas');
+  try {
+    const res = await fetchSeguro('/api/alertas/mantenimiento');
+    if (!res.ok) return;
+    alertasMantenimientoGlobal = await res.json();
+    renderizarAlertasMantenimiento();
+  } catch (error) {
+    console.error('Error cargando alertas:', error);
+    contenedor.innerHTML = '<p style="color: var(--text-muted); font-size: 0.9rem;">No se pudieron cargar las alertas.</p>';
+  }
+}
+
+function calcularDiasDiferencia(fechaObjetivoStr) {
+  const hoy = new Date();
+  hoy.setHours(0, 0, 0, 0);
+  const objetivo = new Date(fechaObjetivoStr + 'T00:00:00');
+  const diffMs = objetivo - hoy;
+  return Math.round(diffMs / (1000 * 60 * 60 * 24));
+}
+
+function generarEnlaceWhatsApp(alerta) {
+  const soloNumeros = String(alerta.cliente_telefono || '').replace(/\D/g, '');
+  const telefonoFinal = soloNumeros.length === 10 ? `${CODIGO_PAIS_WHATSAPP}${soloNumeros}` : soloNumeros;
+
+  const servicioDetalle = alerta.proximo_motivo
+    ? `su servicio de *${alerta.proximo_motivo}*`
+    : 'su servicio de mantenimiento preventivo';
+
+  const kmDetalle = Number(alerta.proximo_servicio_km) > 0
+    ? ` (o al alcanzar los ${Number(alerta.proximo_servicio_km).toLocaleString()} km)`
+    : '';
+
+  const mensaje = `Hola *${alerta.cliente_nombre}*, te saludamos de *${NOMBRE_TALLER}* 🔧. Te recordamos que tu *${alerta.marca} ${alerta.modelo}* (Placas: *${alerta.placas}*) tiene programado ${servicioDetalle} para la fecha *${alerta.proximo_servicio_fecha}*${kmDetalle}. ¿Gustas que te agendemos una cita?`;
+
+  return `https://wa.me/${telefonoFinal}?text=${encodeURIComponent(mensaje)}`;
+}
+
+function renderizarAlertasMantenimiento() {
+  const contenedor = document.getElementById('contenedor-alertas');
+  const filtro = document.getElementById('filtro-alertas-tipo').value;
+  const contadorEl = document.getElementById('contador-alertas');
+
+  const pendientesCount = alertasMantenimientoGlobal.filter(a => Number(a.aviso_enviado) === 0).length;
+  contadorEl.innerText = pendientesCount;
+
+  const listaFiltrada = filtro === 'pendientes'
+    ? alertasMantenimientoGlobal.filter(a => Number(a.aviso_enviado) === 0)
+    : alertasMantenimientoGlobal;
+
+  if (listaFiltrada.length === 0) {
+    contenedor.innerHTML = '<p style="color: var(--text-muted); font-size: 0.9rem;">✅ No hay recordatorios de mantenimiento pendientes por enviar en este momento.</p>';
+    return;
+  }
+
+  contenedor.innerHTML = listaFiltrada.map(alerta => {
+    const dias = calcularDiasDiferencia(alerta.proximo_servicio_fecha);
+    const yaAvisado = Number(alerta.aviso_enviado) === 1;
+    const urlWhatsApp = generarEnlaceWhatsApp(alerta);
+
+    let etiquetaTiempo = '';
+    let claseTarjeta = 'alert-card';
+
+    if (dias < 0) {
+      etiquetaTiempo = `🔴 Vencido hace ${Math.abs(dias)} día(s)`;
+      claseTarjeta += ' alert-vencida';
+    } else if (dias === 0) {
+      etiquetaTiempo = '🔴 ¡Toca HOY!';
+      claseTarjeta += ' alert-vencida';
+    } else {
+      etiquetaTiempo = `🟡 Próximo en ${dias} día(s)`;
+      claseTarjeta += ' alert-proxima';
+    }
+
+    return `
+      <div class="${claseTarjeta}">
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+          <div>
+            <strong>🚘 ${escapeHtml(alerta.marca)} ${escapeHtml(alerta.modelo)} (${Number(alerta.anio)}) — Placas: ${escapeHtml(alerta.placas)}</strong>
+            <span class="badge" style="margin-left: 8px; background: #1e293b; color: #f8fafc;">${etiquetaTiempo}</span>
+            ${yaAvisado ? '<span class="badge badge-Completado" style="margin-left: 6px;">✔ Avisado</span>' : ''}
+          </div>
+          <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+            <a href="${urlWhatsApp}" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-whatsapp" onclick="marcarAvisoEnviado(${Number(alerta.servicio_id)}, true)">💬 Enviar WhatsApp</a>
+            ${!yaAvisado
+              ? `<button type="button" class="btn btn-secondary btn-sm" onclick="marcarAvisoEnviado(${Number(alerta.servicio_id)}, true)">✔ Marcar Avisado</button>`
+              : `<button type="button" class="btn btn-secondary btn-sm" onclick="marcarAvisoEnviado(${Number(alerta.servicio_id)}, false)">↩ Reabrir Aviso</button>`
+            }
+            <button type="button" class="btn btn-secondary btn-sm" onclick="cargarExpedienteCompleto(${Number(alerta.cliente_id)})">📂 Ver Expediente</button>
+          </div>
+        </div>
+        <p style="margin: 8px 0 4px 0; font-size: 0.92rem;">
+          <strong>👤 Cliente:</strong> ${escapeHtml(alerta.cliente_nombre)} | 📞 <strong>Tel:</strong> ${escapeHtml(alerta.cliente_telefono)} | <strong>Fecha Programada:</strong> ${escapeHtml(alerta.proximo_servicio_fecha)}
+          ${Number(alerta.proximo_servicio_km) > 0 ? ` | <strong>Meta KM:</strong> ${Number(alerta.proximo_servicio_km).toLocaleString()} km` : ''}
+        </p>
+        <p style="margin: 0; font-size: 0.88rem; color: var(--text-muted);">
+          <strong>🔧 Servicio Recomendado:</strong> ${escapeHtml(alerta.proximo_motivo || 'Mantenimiento preventivo general')} <em>(Última visita: ${escapeHtml(alerta.ultimo_servicio_fecha)})</em>
+        </p>
+      </div>
+    `;
+  }).join('');
+}
+
+async function marcarAvisoEnviado(servicioId, estadoEnviado) {
+  try {
+    const res = await fetchSeguro(`/api/servicios/${Number(servicioId)}/aviso-enviado`, {
+      method: 'PUT',
+      body: JSON.stringify({ enviado: estadoEnviado })
+    });
+    if (res.ok) {
+      cargarAlertasMantenimiento();
+    }
+  } catch (error) {
+    console.error('Error actualizando estado de aviso:', error);
   }
 }
 
@@ -466,9 +604,13 @@ function renderizarServicios(servicios) {
     const estadoClass = escapeHtml(s.estado).replace(/\s+/g, '-');
     const srvId = Number(s.id);
     
-    // Construcción del texto de auditoría
     const textoCreador = escapeHtml(s.creado_por || 'Sistema / Anterior');
     const textoEditor = s.editado_por ? ` | ✏️ <strong>Editado por:</strong> ${escapeHtml(s.editado_por)}` : '';
+
+    // Mostrar etiqueta si tiene próximo servicio programado
+    const infoProximo = s.proximo_servicio_fecha
+      ? `<p style="color: #f59e0b; font-size: 0.85rem;">🔔 <strong>Próximo Mantenimiento:</strong> ${escapeHtml(s.proximo_servicio_fecha)} ${Number(s.proximo_servicio_km) > 0 ? `(${Number(s.proximo_servicio_km).toLocaleString()} km)` : ''} ${s.proximo_motivo ? `— ${escapeHtml(s.proximo_motivo)}` : ''}</p>`
+      : '';
 
     return `
       <div class="service-card">
@@ -482,6 +624,7 @@ function renderizarServicios(servicios) {
         </div>
         <p><strong>Motivo/Falla:</strong> ${escapeHtml(s.diagnostico)}</p>
         <p><strong>Observaciones:</strong> ${escapeHtml(s.trabajo_realizado || 'Sin comentarios registrados')}</p>
+        ${infoProximo}
         <p><strong>Desglose:</strong> Piezas: $${Number(s.costo_piezas).toFixed(2)} | Mano de Obra: $${Number(s.costo_mano_obra).toFixed(2)} ➔ <strong>Total: $${total}</strong></p>
         <p style="font-size: 0.78rem; color: var(--text-muted); border-top: 1px dashed var(--border); padding-top: 6px; margin-top: 8px; margin-bottom: 0;">
           📝 <strong>Registrado por:</strong> ${textoCreador}${textoEditor}
@@ -568,6 +711,14 @@ function imprimirNota(servicio) {
 
   filasTabla += `<tr><td>🛠️ Mano de Obra Especializada</td><td style="text-align: right;">$${Number(servicio.costo_mano_obra).toFixed(2)}</td></tr>`;
 
+  const bloqueProximoServicio = servicio.proximo_servicio_fecha
+    ? `<div style="background: #fffbeb; border: 1px solid #f59e0b; padding: 10px; border-radius: 6px; margin-top: 15px; font-size: 13px;">
+         <strong>🔔 Recordatorio de Próximo Mantenimiento:</strong> ${escapeHtml(servicio.proximo_servicio_fecha)}
+         ${Number(servicio.proximo_servicio_km) > 0 ? ` | <strong>Kilometraje sugerido:</strong> ${Number(servicio.proximo_servicio_km).toLocaleString()} km` : ''}
+         ${servicio.proximo_motivo ? `<br><strong>Servicio recomendado:</strong> ${escapeHtml(servicio.proximo_motivo)}` : ''}
+       </div>`
+    : '';
+
   const ventanaImpresion = window.open('', '_blank', 'width=800,height=700');
   const contenidoHTML = `
     <!DOCTYPE html>
@@ -628,6 +779,7 @@ function imprimirNota(servicio) {
           ${filasTabla}
         </tbody>
       </table>
+      ${bloqueProximoServicio}
       <div class="total-container">
         <p>Total Importe: <span class="total-amount">$${total} MXN</span></p>
       </div>
@@ -672,6 +824,9 @@ function abrirModalServicio(vehiculoId = null, servicio = null) {
     document.getElementById('srv-trabajo').value = servicio.trabajo_realizado || '';
     document.getElementById('srv-costo-obra').value = servicio.costo_mano_obra;
     document.getElementById('srv-estado').value = servicio.estado;
+    document.getElementById('srv-proximo-fecha').value = servicio.proximo_servicio_fecha || '';
+    document.getElementById('srv-proximo-km').value = servicio.proximo_servicio_km || '';
+    document.getElementById('srv-proximo-motivo').value = servicio.proximo_motivo || '';
 
     if (servicio.refacciones) {
       try {
@@ -684,6 +839,9 @@ function abrirModalServicio(vehiculoId = null, servicio = null) {
     document.getElementById('srv-vehiculo-id').value = vehiculoId;
     document.getElementById('srv-fecha').value = new Date().toISOString().split('T')[0];
     document.getElementById('srv-costo-obra').value = 0;
+    document.getElementById('srv-proximo-fecha').value = '';
+    document.getElementById('srv-proximo-km').value = '';
+    document.getElementById('srv-proximo-motivo').value = '';
   }
 
   renderizarRefaccionesFormulario();

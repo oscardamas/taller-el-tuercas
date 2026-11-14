@@ -120,12 +120,65 @@ input:focus, textarea:focus, select:focus {
   cursor: pointer; 
   transition: background 0.2s; 
   text-transform: uppercase; 
-  font-size: 0.88rem; 
+  font-size: 0.88rem;
+  text-decoration: none;
+  display: inline-block;
 }
 .btn:hover { background-color: var(--accent-hover); }
 .btn-secondary { background: #2d3542; color: #fff; }
 .btn-secondary:hover { background: #3e4859; }
 .btn-sm { font-size: 0.82rem; padding: 8px 14px; }
+
+/* BOTÓN WHATSAPP Y CHIPS DE FECHA */
+.btn-whatsapp {
+  background-color: #16a34a;
+  color: #fff;
+}
+.btn-whatsapp:hover {
+  background-color: #15803d;
+}
+
+.btn-chip {
+  background: #2d3542;
+  color: #f1f5f9;
+  border: 1px solid #475569;
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.btn-chip:hover {
+  border-color: #f59e0b;
+  color: #f59e0b;
+}
+
+/* BLOQUE Y TARJETAS DE ALERTAS DE MANTENIMIENTO */
+.reminder-box {
+  background: #14181f;
+  border: 1px dashed #f59e0b;
+  padding: 14px;
+  border-radius: 8px;
+  margin-top: 16px;
+}
+
+.alert-card {
+  background: var(--card-inner);
+  border-radius: 8px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  margin-bottom: 10px;
+}
+
+.alert-proxima {
+  border-left: 5px solid #f59e0b;
+}
+
+.alert-vencida {
+  border-left: 5px solid #ef4444;
+  background: rgba(239, 68, 68, 0.06);
+}
 
 .header-expediente { 
   display: flex; 
