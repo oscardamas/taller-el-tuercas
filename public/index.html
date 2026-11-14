@@ -4,11 +4,11 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Tu Taller Mecánico - Gestión Automotriz</title>
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css?v=5">
 </head>
 <body>
 
-  <!-- PANTALLA DE LOGIN CON DIFUMINADO (Se oculta al iniciar sesión) -->
+  <!-- PANTALLA DE LOGIN CON DIFUMINADO -->
   <div id="login-overlay">
     <div class="login-box">
       <h2>⚙️ Acceso al Sistema</h2>
@@ -22,10 +22,10 @@
     </div>
   </div>
 
-  <!-- CONTENEDOR PRINCIPAL (Oculto hasta hacer login) -->
+  <!-- CONTENEDOR PRINCIPAL -->
   <div class="container" id="main-container" style="display: none;">
     
-    <!-- BARRA DE ACCESOS RÁPIDOS PARA EL ADMINISTRADOR -->
+    <!-- BARRA DE ACCESOS RÁPIDOS -->
     <nav class="quick-links-bar">
       <span class="quick-links-title">⚡ ACCESOS RÁPIDOS:</span>
       <a href="https://www.google.com" target="_blank" rel="noopener noreferrer" class="quick-link-btn">🌐 Google</a>
@@ -45,6 +45,21 @@
       <h1>⚙️ TU TALLER MECANICO ⚙️</h1>
       <p class="subtitle">SISTEMA DE ADMINISTRACIÓN AUTOMOTRIZ</p>
     </header>
+
+    <!-- RADAR DE MANTENIMIENTO Y RECORDATORIOS -->
+    <section class="card" style="margin-bottom: 20px; border-left: 5px solid #f59e0b;">
+      <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+        <h2 style="margin: 0;">🔔 Radar de Mantenimiento y Avisos <span id="contador-alertas" class="badge badge-Pendiente" style="margin-left: 8px;">0</span></h2>
+        <div style="display: flex; gap: 10px; align-items: center;">
+          <select id="filtro-alertas-tipo" onchange="renderizarAlertasMantenimiento()" style="width: auto; padding: 8px 12px; font-size: 0.9rem;">
+            <option value="pendientes">Pendientes de avisar</option>
+            <option value="todos">Mostrar todos (incluye avisados)</option>
+          </select>
+          <button type="button" class="btn btn-secondary btn-sm" onclick="cargarAlertasMantenimiento()">🔄 Actualizar</button>
+        </div>
+      </div>
+      <div id="contenedor-alertas" class="results-list" style="margin-top: 14px;"></div>
+    </section>
 
     <!-- Barra de Búsqueda por Teléfono -->
     <section class="search-box card">
@@ -188,7 +203,7 @@
 
   <!-- MODAL: Registrar / Editar Orden de Servicio -->
   <div id="modal-servicio" class="modal hidden">
-    <div class="modal-content" style="max-width: 600px;">
+    <div class="modal-content" style="max-width: 640px; max-height: 90vh; overflow-y: auto;">
       <h3 id="modal-srv-titulo">Orden de Servicio</h3>
       <form id="form-servicio">
         <input type="hidden" id="srv-id">
@@ -232,14 +247,38 @@
           <option value="Entregado">Entregado</option>
         </select>
 
+        <!-- BLOQUE DE RECORDATORIO DE PRÓXIMO MANTENIMIENTO -->
+        <div class="reminder-box">
+          <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 6px;">
+            <span style="color: #f59e0b; font-weight: bold; font-size: 0.9rem;">🔔 PROGRAMAR RECORDATORIO DE PRÓXIMO SERVICIO (Opcional)</span>
+            <div style="display: flex; gap: 6px;">
+              <button type="button" class="btn-chip" onclick="establecerFechaProxima(3)">+3 Meses</button>
+              <button type="button" class="btn-chip" onclick="establecerFechaProxima(6)">+6 Meses</button>
+              <button type="button" class="btn-chip" onclick="establecerFechaProxima(12)">+1 Año</button>
+            </div>
+          </div>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 8px;">
+            <div>
+              <label style="margin-top: 4px;">Fecha Próximo Servicio</label>
+              <input type="date" id="srv-proximo-fecha">
+            </div>
+            <div>
+              <label style="margin-top: 4px;">Próximo Kilometraje (km)</label>
+              <input type="number" min="0" id="srv-proximo-km" placeholder="Ej. 85000">
+            </div>
+          </div>
+          <label style="margin-top: 8px;">Servicio Recomendado para la Próxima Visita</label>
+          <input type="text" id="srv-proximo-motivo" maxlength="200" placeholder="Ej. Cambio de aceite sintético y revisión de frenos">
+        </div>
+
         <div class="modal-actions">
-          <button type="submit" class="btn">Guardar Orden</button>
+          <button type="submit" id="btn-guardar-servicio" class="btn">Guardar Orden</button>
           <button type="button" class="btn btn-secondary" onclick="cerrarModales()">Cancelar</button>
         </div>
       </form>
     </div>
   </div>
 
-  <script src="app.js"></script>
+  <script src="app.js?v=5"></script>
 </body>
 </html>

@@ -2,8 +2,12 @@ const express = require('express');
 const path = require('path');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
-const helmet = require('helmet');
-const rateLimit = require('express-rate-limit');
+
+// Carga segura de middlewares de seguridad (evita caídas si falta instalar alguno)
+let helmet = null;
+let rateLimit = null;
+try { helmet = require('helmet'); } catch (e) { console.warn('Aviso: helmet no instalado, continuando sin él.'); }
+try { rateLimit = require('express-rate-limit'); } catch (e) { console.warn('Aviso: express-rate-limit no instalado, continuando sin él.'); }
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -12,21 +16,24 @@ const SECRET_KEY = process.env.SECRET_KEY || 'tuercas_secreto_super_seguro_2026'
 // Confiar en el proxy inverso de Render para identificar correctamente las IPs
 app.set('trust proxy', 1);
 
-// Seguridad de cabeceras HTTP
-app.use(helmet({ contentSecurityPolicy: false }));
+if (helmet) {
+  app.use(helmet({ contentSecurityPolicy: false }));
+}
 
 // Limitar el tamaño máximo de los datos JSON recibidos
 app.use(express.json({ limit: '100kb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Limitador de intentos para el Login (Protección contra fuerza bruta)
-const loginLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutos
-  max: 5, // Máximo 5 intentos por IP
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: 'Demasiados intentos fallidos. Por seguridad, espera 15 minutos.' }
-});
+const loginLimiter = rateLimit
+  ? rateLimit({
+      windowMs: 15 * 60 * 1000,
+      max: 5,
+      standardHeaders: true,
+      legacyHeaders: false,
+      message: { error: 'Demasiados intentos fallidos. Por seguridad, espera 15 minutos.' }
+    })
+  : (req, res, next) => next();
 
 // Detectar base de datos (PostgreSQL en Render o SQLite en local)
 const rawDbUrl = process.env.DATABASE_URL;
@@ -40,38 +47,32 @@ if (usePostgres) {
     ssl: { rejectUnauthorized: false }
   });
 
-  pool.query(`
-    CREATE TABLE IF NOT EXISTS clientes (id SERIAL PRIMARY KEY, nombre VARCHAR(255) NOT NULL, telefono VARCHAR(50) NOT NULL UNIQUE, email VARCHAR(255), notas TEXT, fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP);
-    CREATE TABLE IF NOT EXISTS vehiculos (id SERIAL PRIMARY KEY, cliente_id INTEGER NOT NULL REFERENCES clientes(id) ON DELETE CASCADE, marca VARCHAR(100) NOT NULL, modelo VARCHAR(100) NOT NULL, anio INTEGER NOT NULL, placas VARCHAR(50) NOT NULL UNIQUE, kilometraje INTEGER DEFAULT 0);
-    CREATE TABLE IF NOT EXISTS servicios (
-      id SERIAL PRIMARY KEY,
-      vehiculo_id INTEGER NOT NULL REFERENCES vehiculos(id) ON DELETE CASCADE,
-      fecha VARCHAR(50) NOT NULL,
-      diagnostico TEXT NOT NULL,
-      trabajo_realizado TEXT,
-      costo_piezas NUMERIC(10,2) DEFAULT 0,
-      costo_mano_obra NUMERIC(10,2) DEFAULT 0,
-      estado VARCHAR(50) DEFAULT 'Pendiente',
-      refacciones TEXT,
-      creado_por VARCHAR(100),
-      editado_por VARCHAR(100),
-      proximo_servicio_fecha VARCHAR(50),
-      proximo_servicio_km INTEGER DEFAULT 0,
-      proximo_motivo TEXT,
-      aviso_enviado INTEGER DEFAULT 0
-    );
-    ALTER TABLE servicios ADD COLUMN IF NOT EXISTS refacciones TEXT;
-    ALTER TABLE servicios ADD COLUMN IF NOT EXISTS creado_por VARCHAR(100);
-    ALTER TABLE servicios ADD COLUMN IF NOT EXISTS editado_por VARCHAR(100);
-    ALTER TABLE servicios ADD COLUMN IF NOT EXISTS proximo_servicio_fecha VARCHAR(50);
-    ALTER TABLE servicios ADD COLUMN IF NOT EXISTS proximo_servicio_km INTEGER DEFAULT 0;
-    ALTER TABLE servicios ADD COLUMN IF NOT EXISTS proximo_motivo TEXT;
-    ALTER TABLE servicios ADD COLUMN IF NOT EXISTS aviso_enviado INTEGER DEFAULT 0;
-    CREATE TABLE IF NOT EXISTS usuarios (id SERIAL PRIMARY KEY, username VARCHAR(50) NOT NULL UNIQUE, password VARCHAR(255) NOT NULL, rol VARCHAR(20) DEFAULT 'empleado');
-  `).then(async () => {
+  // Ejecutar cada tabla y columna de forma individual y segura
+  (async () => {
+    const comandosInit = [
+      `CREATE TABLE IF NOT EXISTS clientes (id SERIAL PRIMARY KEY, nombre VARCHAR(255) NOT NULL, telefono VARCHAR(50) NOT NULL UNIQUE, email VARCHAR(255), notas TEXT, fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP)`,
+      `CREATE TABLE IF NOT EXISTS vehiculos (id SERIAL PRIMARY KEY, cliente_id INTEGER NOT NULL REFERENCES clientes(id) ON DELETE CASCADE, marca VARCHAR(100) NOT NULL, modelo VARCHAR(100) NOT NULL, anio INTEGER NOT NULL, placas VARCHAR(50) NOT NULL UNIQUE, kilometraje INTEGER DEFAULT 0)`,
+      `CREATE TABLE IF NOT EXISTS servicios (id SERIAL PRIMARY KEY, vehiculo_id INTEGER NOT NULL REFERENCES vehiculos(id) ON DELETE CASCADE, fecha VARCHAR(50) NOT NULL, diagnostico TEXT NOT NULL, trabajo_realizado TEXT, costo_piezas NUMERIC(10,2) DEFAULT 0, costo_mano_obra NUMERIC(10,2) DEFAULT 0, estado VARCHAR(50) DEFAULT 'Pendiente', refacciones TEXT, creado_por VARCHAR(100), editado_por VARCHAR(100), proximo_servicio_fecha VARCHAR(50), proximo_servicio_km INTEGER DEFAULT 0, proximo_motivo TEXT, aviso_enviado INTEGER DEFAULT 0)`,
+      `ALTER TABLE servicios ADD COLUMN IF NOT EXISTS refacciones TEXT`,
+      `ALTER TABLE servicios ADD COLUMN IF NOT EXISTS creado_por VARCHAR(100)`,
+      `ALTER TABLE servicios ADD COLUMN IF NOT EXISTS editado_por VARCHAR(100)`,
+      `ALTER TABLE servicios ADD COLUMN IF NOT EXISTS proximo_servicio_fecha VARCHAR(50)`,
+      `ALTER TABLE servicios ADD COLUMN IF NOT EXISTS proximo_servicio_km INTEGER DEFAULT 0`,
+      `ALTER TABLE servicios ADD COLUMN IF NOT EXISTS proximo_motivo TEXT`,
+      `ALTER TABLE servicios ADD COLUMN IF NOT EXISTS aviso_enviado INTEGER DEFAULT 0`,
+      `CREATE TABLE IF NOT EXISTS usuarios (id SERIAL PRIMARY KEY, username VARCHAR(50) NOT NULL UNIQUE, password VARCHAR(255) NOT NULL, rol VARCHAR(20) DEFAULT 'empleado')`
+    ];
+
+    for (const sql of comandosInit) {
+      try {
+        await pool.query(sql);
+      } catch (err) {
+        console.error('Aviso migración PostgreSQL:', err.message);
+      }
+    }
     console.log('PostgreSQL: Tablas, auditoría y alertas verificadas.');
-    crearAdminPorDefecto();
-  }).catch(err => console.error('Error DB:', err.message));
+    await crearAdminPorDefecto();
+  })();
 
   queryDB = async (text, params = []) => {
     let queryText = text;
@@ -88,23 +89,7 @@ if (usePostgres) {
   db.serialize(() => {
     db.run(`CREATE TABLE IF NOT EXISTS clientes (id INTEGER PRIMARY KEY AUTOINCREMENT, nombre TEXT NOT NULL, telefono TEXT NOT NULL UNIQUE, email TEXT, notas TEXT, fecha_registro DATETIME DEFAULT CURRENT_TIMESTAMP)`);
     db.run(`CREATE TABLE IF NOT EXISTS vehiculos (id INTEGER PRIMARY KEY AUTOINCREMENT, cliente_id INTEGER NOT NULL, marca TEXT NOT NULL, modelo TEXT NOT NULL, anio INTEGER NOT NULL, placas TEXT NOT NULL UNIQUE, kilometraje INTEGER DEFAULT 0)`);
-    db.run(`CREATE TABLE IF NOT EXISTS servicios (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      vehiculo_id INTEGER NOT NULL,
-      fecha TEXT NOT NULL,
-      diagnostico TEXT NOT NULL,
-      trabajo_realizado TEXT,
-      costo_piezas REAL DEFAULT 0,
-      costo_mano_obra REAL DEFAULT 0,
-      estado TEXT DEFAULT 'Pendiente',
-      refacciones TEXT,
-      creado_por TEXT,
-      editado_por TEXT,
-      proximo_servicio_fecha TEXT,
-      proximo_servicio_km INTEGER DEFAULT 0,
-      proximo_motivo TEXT,
-      aviso_enviado INTEGER DEFAULT 0
-    )`);
+    db.run(`CREATE TABLE IF NOT EXISTS servicios (id INTEGER PRIMARY KEY AUTOINCREMENT, vehiculo_id INTEGER NOT NULL, fecha TEXT NOT NULL, diagnostico TEXT NOT NULL, trabajo_realizado TEXT, costo_piezas REAL DEFAULT 0, costo_mano_obra REAL DEFAULT 0, estado TEXT DEFAULT 'Pendiente', refacciones TEXT, creado_por TEXT, editado_por TEXT, proximo_servicio_fecha TEXT, proximo_servicio_km INTEGER DEFAULT 0, proximo_motivo TEXT, aviso_enviado INTEGER DEFAULT 0)`);
     db.run(`ALTER TABLE servicios ADD COLUMN refacciones TEXT`, () => {});
     db.run(`ALTER TABLE servicios ADD COLUMN creado_por TEXT`, () => {});
     db.run(`ALTER TABLE servicios ADD COLUMN editado_por TEXT`, () => {});
@@ -266,10 +251,10 @@ app.get('/api/clientes/:id/completo', verificarToken, async (req, res) => {
     const vehiculoIds = vehiculos.map(v => Number(v.id));
     let servicios = [];
     if (usePostgres) {
-      servicios = await queryDB('SELECT * FROM servicios WHERE vehiculo_id = ANY($1::int[]) ORDER BY fecha DESC', [vehiculoIds]);
+      servicios = await queryDB('SELECT * FROM servicios WHERE vehiculo_id = ANY($1::int[]) ORDER BY fecha DESC, id DESC', [vehiculoIds]);
     } else {
       const placeholders = vehiculoIds.map(() => '?').join(',');
-      servicios = await queryDB(`SELECT * FROM servicios WHERE vehiculo_id IN (${placeholders}) ORDER BY fecha DESC`, vehiculoIds);
+      servicios = await queryDB(`SELECT * FROM servicios WHERE vehiculo_id IN (${placeholders}) ORDER BY fecha DESC, id DESC`, vehiculoIds);
     }
     const vehiculosConServicios = vehiculos.map(v => ({
       ...v,
@@ -386,14 +371,16 @@ app.post('/api/servicios', verificarToken, async (req, res) => {
   const estadosValidos = ['Pendiente', 'En Proceso', 'Completado', 'Entregado'];
   const estado = estadosValidos.includes(req.body.estado) ? req.body.estado : 'Pendiente';
   const refacciones = typeof req.body.refacciones === 'string' ? req.body.refacciones : '[]';
-  const creado_por = req.usuario.username;
+  const creado_por = (req.usuario && req.usuario.username) ? req.usuario.username : 'usuario';
 
-  // Campos de recordatorio de mantenimiento
   const proximo_servicio_fecha = String(req.body.proximo_servicio_fecha || '').trim();
   const proximo_servicio_km = Math.max(0, parseInt(req.body.proximo_servicio_km, 10) || 0);
   const proximo_motivo = String(req.body.proximo_motivo || '').trim();
 
-  if (isNaN(vehiculo_id) || !diagnostico) {
+  if (isNaN(vehiculo_id)) {
+    return res.status(400).json({ error: 'No se identificó el vehículo para esta orden.' });
+  }
+  if (!diagnostico) {
     return res.status(400).json({ error: 'El motivo de ingreso / falla es obligatorio.' });
   }
 
@@ -406,13 +393,13 @@ app.post('/api/servicios', verificarToken, async (req, res) => {
     res.json({ id: rows[0]?.id, message: 'Orden registrada.' });
   } catch (err) {
     console.error('Error registrando orden:', err.message);
-    res.status(500).json({ error: 'Error al guardar la orden de servicio.' });
+    res.status(500).json({ error: `Error al guardar la orden (${err.code || 'DB'}).` });
   }
 });
 
 app.put('/api/servicios/:id', verificarToken, async (req, res) => {
   const srvId = parseInt(req.params.id, 10);
-  const fecha = String(req.body.fecha || '').trim();
+  const fecha = String(req.body.fecha || new Date().toISOString().split('T')[0]).trim();
   const diagnostico = String(req.body.diagnostico || '').trim();
   const trabajo_realizado = String(req.body.trabajo_realizado || '').trim();
   const costo_piezas = Math.max(0, parseFloat(req.body.costo_piezas) || 0);
@@ -420,15 +407,17 @@ app.put('/api/servicios/:id', verificarToken, async (req, res) => {
   const estadosValidos = ['Pendiente', 'En Proceso', 'Completado', 'Entregado'];
   const estado = estadosValidos.includes(req.body.estado) ? req.body.estado : 'Pendiente';
   const refacciones = typeof req.body.refacciones === 'string' ? req.body.refacciones : '[]';
-  const editado_por = req.usuario.username;
+  const editado_por = (req.usuario && req.usuario.username) ? req.usuario.username : 'usuario';
 
-  // Campos de recordatorio de mantenimiento
   const proximo_servicio_fecha = String(req.body.proximo_servicio_fecha || '').trim();
   const proximo_servicio_km = Math.max(0, parseInt(req.body.proximo_servicio_km, 10) || 0);
   const proximo_motivo = String(req.body.proximo_motivo || '').trim();
 
-  if (isNaN(srvId) || !diagnostico) {
-    return res.status(400).json({ error: 'Datos de la orden inválidos.' });
+  if (isNaN(srvId)) {
+    return res.status(400).json({ error: 'ID de orden inválido.' });
+  }
+  if (!diagnostico) {
+    return res.status(400).json({ error: 'El motivo de ingreso / falla es obligatorio.' });
   }
 
   try {
@@ -443,13 +432,12 @@ app.put('/api/servicios/:id', verificarToken, async (req, res) => {
     res.json({ message: 'Servicio actualizado.' });
   } catch (err) {
     console.error('Error actualizando orden:', err.message);
-    res.status(500).json({ error: 'Error al actualizar la orden de servicio.' });
+    res.status(500).json({ error: `Error al actualizar la orden (${err.code || 'DB'}).` });
   }
 });
 
 // --- RUTAS DE ALERTAS DE MANTENIMIENTO ---
 app.get('/api/alertas/mantenimiento', verificarToken, async (req, res) => {
-  // Parámetro ajustable: días de anticipación para mostrar recordatorios
   const DIAS_ANTICIPACION = 15;
   const fechaLimiteObj = new Date();
   fechaLimiteObj.setDate(fechaLimiteObj.getDate() + DIAS_ANTICIPACION);
@@ -516,4 +504,4 @@ app.get('/api/servicios/estado/:estado', verificarToken, async (req, res) => {
   }
 });
 
-app.listen(PORT, () => console.log(`Servidor seguro con alertas activo en puerto ${PORT}`));
+app.listen(PORT, () => console.log(`Servidor seguro activo en puerto ${PORT}`));
