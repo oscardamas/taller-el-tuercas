@@ -1,4 +1,4 @@
-// app.js - Gestión de interfaz, seguridad XSS/JWT y órdenes de servicio
+// app.js - Gestión de interfaz, seguridad XSS/JWT, auditoría y órdenes de servicio
 let clienteActualId = null;
 let clienteDataGlobal = null;
 let refaccionesTemporales = [];
@@ -465,6 +465,10 @@ function renderizarServicios(servicios) {
     const total = (Number(s.costo_piezas) + Number(s.costo_mano_obra)).toFixed(2);
     const estadoClass = escapeHtml(s.estado).replace(/\s+/g, '-');
     const srvId = Number(s.id);
+    
+    // Construcción del texto de auditoría
+    const textoCreador = escapeHtml(s.creado_por || 'Sistema / Anterior');
+    const textoEditor = s.editado_por ? ` | ✏️ <strong>Editado por:</strong> ${escapeHtml(s.editado_por)}` : '';
 
     return `
       <div class="service-card">
@@ -479,6 +483,9 @@ function renderizarServicios(servicios) {
         <p><strong>Motivo/Falla:</strong> ${escapeHtml(s.diagnostico)}</p>
         <p><strong>Observaciones:</strong> ${escapeHtml(s.trabajo_realizado || 'Sin comentarios registrados')}</p>
         <p><strong>Desglose:</strong> Piezas: $${Number(s.costo_piezas).toFixed(2)} | Mano de Obra: $${Number(s.costo_mano_obra).toFixed(2)} ➔ <strong>Total: $${total}</strong></p>
+        <p style="font-size: 0.78rem; color: var(--text-muted); border-top: 1px dashed var(--border); padding-top: 6px; margin-top: 8px; margin-bottom: 0;">
+          📝 <strong>Registrado por:</strong> ${textoCreador}${textoEditor}
+        </p>
       </div>
     `;
   }).join('');
@@ -505,6 +512,8 @@ async function filtrarPorEstado(estado) {
     lista.forEach(item => {
       const total = (Number(item.costo_piezas) + Number(item.costo_mano_obra)).toFixed(2);
       const estadoClass = escapeHtml(item.estado).replace(/\s+/g, '-');
+      const textoCreador = escapeHtml(item.creado_por || 'Sistema / Anterior');
+      const textoEditor = item.editado_por ? ` | ✏️ <strong>Editado por:</strong> ${escapeHtml(item.editado_por)}` : '';
 
       const card = document.createElement('div');
       card.className = 'vehicle-card';
@@ -520,6 +529,9 @@ async function filtrarPorEstado(estado) {
           <p><strong>Diagnóstico / Falla:</strong> ${escapeHtml(item.diagnostico)}</p>
           <p><strong>Observaciones:</strong> ${escapeHtml(item.trabajo_realizado || 'Pendiente')}</p>
           <p><strong>Costo Estimado/Total:</strong> $${total} MXN</p>
+          <p style="font-size: 0.78rem; color: var(--text-muted); border-top: 1px dashed var(--border); padding-top: 6px; margin-top: 8px; margin-bottom: 0;">
+            📝 <strong>Registrado por:</strong> ${textoCreador}${textoEditor}
+          </p>
         </div>
         <button class="btn btn-secondary btn-sm" style="margin-top: 10px;" onclick="cargarExpedienteCompleto(${Number(item.cliente_id)})">Ver expediente completo de ${escapeHtml(item.cliente_nombre)}</button>
       `;
@@ -536,6 +548,7 @@ function imprimirNota(servicio) {
 
   const vehiculo = (clienteDataGlobal.vehiculos || []).find(v => Number(v.id) === Number(servicio.vehiculo_id)) || {};
   const total = (Number(servicio.costo_piezas) + Number(servicio.costo_mano_obra)).toFixed(2);
+  const atendidoPor = escapeHtml(servicio.editado_por || servicio.creado_por || 'Personal Autorizado');
 
   let listaRefacciones = [];
   if (servicio.refacciones) {
@@ -605,7 +618,7 @@ function imprimirNota(servicio) {
         <div class="box-title">📋 Detalle del Servicio</div>
         <p><strong>Motivo de Ingreso / Falla Reportada:</strong> ${escapeHtml(servicio.diagnostico)}</p>
         <p><strong>Comentarios Generales:</strong> ${escapeHtml(servicio.trabajo_realizado || 'Sin observaciones registradas')}</p>
-        <p><strong>Estado Actual:</strong> <strong>${escapeHtml(servicio.estado)}</strong></p>
+        <p><strong>Estado Actual:</strong> <strong>${escapeHtml(servicio.estado)}</strong> | <strong>Atendido por:</strong> ${atendidoPor}</p>
       </div>
       <table>
         <thead>

@@ -12,10 +12,10 @@ const SECRET_KEY = process.env.SECRET_KEY || 'tuercas_secreto_super_seguro_2026'
 // Confiar en el proxy inverso de Render para identificar correctamente las IPs
 app.set('trust proxy', 1);
 
-// Seguridad de cabeceras HTTP (desactivamos CSP estricto para permitir los eventos onclick actuales)
+// Seguridad de cabeceras HTTP
 app.use(helmet({ contentSecurityPolicy: false }));
 
-// Limitar el tamaño máximo de los datos JSON recibidos para evitar ataques de saturación
+// Limitar el tamaño máximo de los datos JSON recibidos
 app.use(express.json({ limit: '100kb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
@@ -28,7 +28,7 @@ const loginLimiter = rateLimit({
   message: { error: 'Demasiados intentos fallidos. Por seguridad, espera 15 minutos.' }
 });
 
-// Detectar base de datos
+// Detectar base de datos (PostgreSQL en Render o SQLite en local)
 const rawDbUrl = process.env.DATABASE_URL;
 const usePostgres = rawDbUrl && (rawDbUrl.startsWith('postgres://') || rawDbUrl.startsWith('postgresql://'));
 let queryDB;
@@ -43,11 +43,13 @@ if (usePostgres) {
   pool.query(`
     CREATE TABLE IF NOT EXISTS clientes (id SERIAL PRIMARY KEY, nombre VARCHAR(255) NOT NULL, telefono VARCHAR(50) NOT NULL UNIQUE, email VARCHAR(255), notas TEXT, fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP);
     CREATE TABLE IF NOT EXISTS vehiculos (id SERIAL PRIMARY KEY, cliente_id INTEGER NOT NULL REFERENCES clientes(id) ON DELETE CASCADE, marca VARCHAR(100) NOT NULL, modelo VARCHAR(100) NOT NULL, anio INTEGER NOT NULL, placas VARCHAR(50) NOT NULL UNIQUE, kilometraje INTEGER DEFAULT 0);
-    CREATE TABLE IF NOT EXISTS servicios (id SERIAL PRIMARY KEY, vehiculo_id INTEGER NOT NULL REFERENCES vehiculos(id) ON DELETE CASCADE, fecha VARCHAR(50) NOT NULL, diagnostico TEXT NOT NULL, trabajo_realizado TEXT, costo_piezas NUMERIC(10,2) DEFAULT 0, costo_mano_obra NUMERIC(10,2) DEFAULT 0, estado VARCHAR(50) DEFAULT 'Pendiente', refacciones TEXT);
+    CREATE TABLE IF NOT EXISTS servicios (id SERIAL PRIMARY KEY, vehiculo_id INTEGER NOT NULL REFERENCES vehiculos(id) ON DELETE CASCADE, fecha VARCHAR(50) NOT NULL, diagnostico TEXT NOT NULL, trabajo_realizado TEXT, costo_piezas NUMERIC(10,2) DEFAULT 0, costo_mano_obra NUMERIC(10,2) DEFAULT 0, estado VARCHAR(50) DEFAULT 'Pendiente', refacciones TEXT, creado_por VARCHAR(100), editado_por VARCHAR(100));
     ALTER TABLE servicios ADD COLUMN IF NOT EXISTS refacciones TEXT;
+    ALTER TABLE servicios ADD COLUMN IF NOT EXISTS creado_por VARCHAR(100);
+    ALTER TABLE servicios ADD COLUMN IF NOT EXISTS editado_por VARCHAR(100);
     CREATE TABLE IF NOT EXISTS usuarios (id SERIAL PRIMARY KEY, username VARCHAR(50) NOT NULL UNIQUE, password VARCHAR(255) NOT NULL, rol VARCHAR(20) DEFAULT 'empleado');
   `).then(async () => {
-    console.log('PostgreSQL: Tablas verificadas.');
+    console.log('PostgreSQL: Tablas y columnas de auditoría verificadas.');
     crearAdminPorDefecto();
   }).catch(err => console.error('Error DB:', err.message));
 
@@ -66,8 +68,10 @@ if (usePostgres) {
   db.serialize(() => {
     db.run(`CREATE TABLE IF NOT EXISTS clientes (id INTEGER PRIMARY KEY AUTOINCREMENT, nombre TEXT NOT NULL, telefono TEXT NOT NULL UNIQUE, email TEXT, notas TEXT, fecha_registro DATETIME DEFAULT CURRENT_TIMESTAMP)`);
     db.run(`CREATE TABLE IF NOT EXISTS vehiculos (id INTEGER PRIMARY KEY AUTOINCREMENT, cliente_id INTEGER NOT NULL, marca TEXT NOT NULL, modelo TEXT NOT NULL, anio INTEGER NOT NULL, placas TEXT NOT NULL UNIQUE, kilometraje INTEGER DEFAULT 0)`);
-    db.run(`CREATE TABLE IF NOT EXISTS servicios (id INTEGER PRIMARY KEY AUTOINCREMENT, vehiculo_id INTEGER NOT NULL, fecha TEXT NOT NULL, diagnostico TEXT NOT NULL, trabajo_realizado TEXT, costo_piezas REAL DEFAULT 0, costo_mano_obra REAL DEFAULT 0, estado TEXT DEFAULT 'Pendiente', refacciones TEXT)`);
+    db.run(`CREATE TABLE IF NOT EXISTS servicios (id INTEGER PRIMARY KEY AUTOINCREMENT, vehiculo_id INTEGER NOT NULL, fecha TEXT NOT NULL, diagnostico TEXT NOT NULL, trabajo_realizado TEXT, costo_piezas REAL DEFAULT 0, costo_mano_obra REAL DEFAULT 0, estado TEXT DEFAULT 'Pendiente', refacciones TEXT, creado_por TEXT, editado_por TEXT)`);
     db.run(`ALTER TABLE servicios ADD COLUMN refacciones TEXT`, () => {});
+    db.run(`ALTER TABLE servicios ADD COLUMN creado_por TEXT`, () => {});
+    db.run(`ALTER TABLE servicios ADD COLUMN editado_por TEXT`, () => {});
     db.run(`CREATE TABLE IF NOT EXISTS usuarios (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL UNIQUE, password TEXT NOT NULL, rol TEXT DEFAULT 'empleado')`, () => {
       crearAdminPorDefecto();
     });
@@ -109,7 +113,7 @@ const verificarToken = (req, res, next) => {
   const token = authHeader.split(' ')[1];
   jwt.verify(token, SECRET_KEY, (err, decoded) => {
     if (err) return res.status(401).json({ error: 'Sesión expirada o inválida.' });
-    req.usuario = decoded;
+    req.usuario = decoded; // Contiene { id, username, rol }
     next();
   });
 };
@@ -331,6 +335,7 @@ app.put('/api/vehiculos/:id', verificarToken, async (req, res) => {
   }
 });
 
+// --- RUTAS DE ÓRDENES DE SERVICIO CON AUDITORÍA DE USUARIO ---
 app.post('/api/servicios', verificarToken, async (req, res) => {
   const vehiculo_id = parseInt(req.body.vehiculo_id, 10);
   const fecha = String(req.body.fecha || new Date().toISOString().split('T')[0]).trim();
@@ -341,6 +346,9 @@ app.post('/api/servicios', verificarToken, async (req, res) => {
   const estadosValidos = ['Pendiente', 'En Proceso', 'Completado', 'Entregado'];
   const estado = estadosValidos.includes(req.body.estado) ? req.body.estado : 'Pendiente';
   const refacciones = typeof req.body.refacciones === 'string' ? req.body.refacciones : '[]';
+  
+  // Obtenemos automáticamente el nombre del usuario autenticado desde el token
+  const creado_por = req.usuario.username;
 
   if (isNaN(vehiculo_id) || !diagnostico) {
     return res.status(400).json({ error: 'El motivo de ingreso / falla es obligatorio.' });
@@ -348,8 +356,8 @@ app.post('/api/servicios', verificarToken, async (req, res) => {
 
   try {
     const rows = await queryDB(
-      `INSERT INTO servicios (vehiculo_id, fecha, diagnostico, trabajo_realizado, costo_piezas, costo_mano_obra, estado, refacciones) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-      [vehiculo_id, fecha, diagnostico, trabajo_realizado, costo_piezas, costo_mano_obra, estado, refacciones]
+      `INSERT INTO servicios (vehiculo_id, fecha, diagnostico, trabajo_realizado, costo_piezas, costo_mano_obra, estado, refacciones, creado_por) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+      [vehiculo_id, fecha, diagnostico, trabajo_realizado, costo_piezas, costo_mano_obra, estado, refacciones, creado_por]
     );
     res.json({ id: rows[0]?.id, message: 'Orden registrada.' });
   } catch (err) {
@@ -369,14 +377,17 @@ app.put('/api/servicios/:id', verificarToken, async (req, res) => {
   const estado = estadosValidos.includes(req.body.estado) ? req.body.estado : 'Pendiente';
   const refacciones = typeof req.body.refacciones === 'string' ? req.body.refacciones : '[]';
 
+  // Registramos automáticamente qué usuario realizó esta edición
+  const editado_por = req.usuario.username;
+
   if (isNaN(srvId) || !diagnostico) {
     return res.status(400).json({ error: 'Datos de la orden inválidos.' });
   }
 
   try {
     await queryDB(
-      `UPDATE servicios SET fecha = $1, diagnostico = $2, trabajo_realizado = $3, costo_piezas = $4, costo_mano_obra = $5, estado = $6, refacciones = $7 WHERE id = $8`,
-      [fecha, diagnostico, trabajo_realizado, costo_piezas, costo_mano_obra, estado, refacciones, srvId]
+      `UPDATE servicios SET fecha = $1, diagnostico = $2, trabajo_realizado = $3, costo_piezas = $4, costo_mano_obra = $5, estado = $6, refacciones = $7, editado_por = $8 WHERE id = $9`,
+      [fecha, diagnostico, trabajo_realizado, costo_piezas, costo_mano_obra, estado, refacciones, editado_por, srvId]
     );
     res.json({ message: 'Servicio actualizado.' });
   } catch (err) {
@@ -393,7 +404,7 @@ app.get('/api/servicios/estado/:estado', verificarToken, async (req, res) => {
 
   try {
     const rows = await queryDB(
-      `SELECT s.id AS servicio_id, s.fecha, s.diagnostico, s.trabajo_realizado, s.costo_piezas, s.costo_mano_obra, s.estado, s.refacciones,
+      `SELECT s.id AS servicio_id, s.fecha, s.diagnostico, s.trabajo_realizado, s.costo_piezas, s.costo_mano_obra, s.estado, s.refacciones, s.creado_por, s.editado_por,
               v.id AS vehiculo_id, v.marca, v.modelo, v.anio, v.placas, v.kilometraje,
               c.id AS cliente_id, c.nombre AS cliente_nombre, c.telefono AS cliente_telefono
        FROM servicios s
@@ -410,4 +421,4 @@ app.get('/api/servicios/estado/:estado', verificarToken, async (req, res) => {
   }
 });
 
-app.listen(PORT, () => console.log(`Servidor seguro activo en puerto ${PORT}`));
+app.listen(PORT, () => console.log(`Servidor seguro con auditoría activo en puerto ${PORT}`));
